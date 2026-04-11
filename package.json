@@ -1,0 +1,118 @@
+{
+  "name": "depression-detection-frontend",
+  "version": "1.0.0",
+  "description": "AI-Powered Employee Depression Detection System — Frontend (Group 11, CSE471 Spring 2026)",
+  "private": true,
+
+  "_versions": {
+    "node": "20.x LTS (required)",
+    "npm": "10.x (required)",
+    "react": "18.3.1",
+    "react-router-dom": "6.23.1",
+    "typescript": "5.4.5",
+    "vite": "5.2.12",
+    "tailwindcss": "3.4.4",
+    "zustand": "4.5.2",
+    "tanstack-react-query": "5.40.0",
+    "axios": "1.7.2",
+    "react-hook-form": "7.51.5",
+    "zod": "3.23.8",
+    "recharts": "2.12.7",
+    "react-calendar-heatmap": "1.9.0",
+    "react-webcam": "7.2.0",
+    "framer-motion": "11.2.10",
+    "jspdf": "2.5.1",
+    "jspdf-autotable": "3.8.2",
+    "date-fns": "3.6.0",
+    "socket.io-client": "4.7.5",
+    "lucide-react": "0.395.0",
+    "sonner": "1.5.0",
+    "eslint": "8.57.0",
+    "prettier": "3.3.2",
+    "vitest": "1.6.0"
+  },
+
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "format": "prettier --write src/**/*.{ts,tsx,css}"
+  },
+
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.23.1",
+
+    "zustand": "^4.5.2",
+    "@tanstack/react-query": "^5.40.0",
+    "axios": "^1.7.2",
+
+    "react-hook-form": "^7.51.5",
+    "zod": "^3.23.8",
+    "@hookform/resolvers": "^3.6.0",
+
+    "@radix-ui/react-dialog": "^1.0.5",
+    "@radix-ui/react-dropdown-menu": "^2.0.6",
+    "@radix-ui/react-tooltip": "^1.0.7",
+    "@radix-ui/react-avatar": "^1.0.4",
+    "@radix-ui/react-progress": "^1.0.3",
+    "@radix-ui/react-tabs": "^1.0.4",
+    "@radix-ui/react-select": "^2.0.0",
+    "@radix-ui/react-switch": "^1.0.3",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.3.0",
+    "class-variance-authority": "^0.7.0",
+    "lucide-react": "^0.395.0",
+
+    "recharts": "^2.12.7",
+    "react-calendar-heatmap": "^1.9.0",
+
+    "react-webcam": "^7.2.0",
+
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.2",
+
+    "date-fns": "^3.6.0",
+    "react-day-picker": "^8.10.1",
+
+    "sonner": "^1.5.0",
+
+    "framer-motion": "^11.2.10",
+
+    "react-markdown": "^9.0.1",
+    "socket.io-client": "^4.7.5"
+  },
+
+  "devDependencies": {
+    "vite": "^5.2.12",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.4.5",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/node": "^20.14.2",
+
+    "tailwindcss": "^3.4.4",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^7.13.0",
+    "@typescript-eslint/parser": "^7.13.0",
+    "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-react-refresh": "^0.4.7",
+    "prettier": "^3.3.2",
+    "prettier-plugin-tailwindcss": "^0.6.4",
+
+    "vitest": "^1.6.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/jest-dom": "^6.4.6",
+    "jsdom": "^24.1.0"
+  },
+
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

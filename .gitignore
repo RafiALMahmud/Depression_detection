@@ -1,0 +1,15 @@
+node_modules/
+venv/
+dist/
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+
+# Env and local settings
+.env
+.env.*
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

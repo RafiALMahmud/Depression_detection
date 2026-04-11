@@ -1,0 +1,142 @@
+# ============================================================
+# AI-Powered Employee Depression Detection System
+# Python Requirements — Group 11, CSE471 Spring 2026
+# Python version: 3.10.x (recommended)
+# ============================================================
+
+
+# ------------------------------------------------------------
+# Web Framework & API
+# ------------------------------------------------------------
+fastapi==0.111.0
+uvicorn[standard]==0.30.1          # ASGI server for FastAPI
+python-multipart==0.0.9            # File/form uploads (webcam frames, voice notes)
+httpx==0.27.0                      # Async HTTP client (inter-service calls)
+pydantic==2.7.1                    # Data validation (FastAPI models)
+pydantic-settings==2.3.0           # Settings management via .env
+
+
+# ------------------------------------------------------------
+# Computer Vision & Facial Expression Analysis
+# ------------------------------------------------------------
+opencv-python==4.9.0.80            # Webcam frame capture & preprocessing
+mediapipe==0.10.14                 # Facial landmark extraction
+Pillow==10.3.0                     # Image processing utility
+
+
+# ------------------------------------------------------------
+# Deep Learning — CNN Classifier (FER-2013 / RAF-DB)
+# ------------------------------------------------------------
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.3.0+cpu                   # PyTorch CPU-only build (no CUDA overhead)
+torchvision==0.18.0+cpu            # Image transforms & pretrained CNNs (CPU)
+torchaudio==2.3.0+cpu              # Required for Whisper (CPU)
+numpy==1.26.4                      # Numerical computing (keep <2.0 for torch compat)
+scikit-learn==1.5.0                # Metrics, preprocessing, label encoding
+scipy==1.13.1                      # Signal processing utilities
+
+
+# ------------------------------------------------------------
+# AI Venting Assistant — Hugging Face / Local LLM
+# ------------------------------------------------------------
+transformers==4.41.2               # Hugging Face Transformers (Llama 3 / Mistral)
+accelerate==0.30.1                 # CPU offload & model loading optimization
+optimum==1.20.0                    # HF model optimization for CPU inference
+sentencepiece==0.2.0               # Tokenizer dependency for many HF models
+huggingface-hub==0.23.4            # Model downloading from HF Hub
+
+
+# ------------------------------------------------------------
+# Database Drivers
+# ------------------------------------------------------------
+asyncpg==0.29.0                    # Async PostgreSQL driver
+sqlalchemy[asyncio]==2.0.30        # ORM for PostgreSQL (async mode)
+alembic==1.13.1                    # Database migrations
+psycopg2-binary==2.9.9             # Sync PostgreSQL driver (Alembic / scripts)
+
+
+# ------------------------------------------------------------
+# Authentication & Security
+# ------------------------------------------------------------
+python-jose[cryptography]==3.3.0   # JWT token encoding/decoding
+passlib[bcrypt]==1.7.4             # Password hashing
+cryptography==42.0.8               # Encryption (end-to-end for counselor records)
+
+
+# ------------------------------------------------------------
+# Task Queue & Background Jobs
+# (automated reminders, escalation alerts, compliance checks)
+# ------------------------------------------------------------
+celery==5.4.0
+redis==5.0.4                       # Celery broker + session caching
+flower==2.0.1                      # Celery monitoring dashboard (optional)
+
+
+# ------------------------------------------------------------
+# Email & Notifications
+# ------------------------------------------------------------
+emails==0.6                        # Email sending (check-in reminders, alerts)
+jinja2==3.1.4                      # HTML email templating
+
+
+# ------------------------------------------------------------
+# PDF Export
+# (employee session log export — Module 1, FR 3)
+# ------------------------------------------------------------
+reportlab==4.2.0                   # PDF generation
+weasyprint==62.3                   # HTML-to-PDF (richer formatting option)
+
+
+# ------------------------------------------------------------
+# Data Analysis & Scoring Utilities
+# ------------------------------------------------------------
+pandas==2.2.2                      # Aggregate analytics, trend computation
+matplotlib==3.9.0                  # Chart generation for exported reports
+
+
+# ------------------------------------------------------------
+# Content Moderation
+# (Anonymous Peer Support Board — Module 3, FR 4)
+# ------------------------------------------------------------
+better-profanity==0.7.0            # Keyword-based harmful content filtering
+
+
+# ------------------------------------------------------------
+# Configuration & Environment
+# ------------------------------------------------------------
+python-dotenv==1.0.1               # Load .env variables
+loguru==0.7.2                      # Structured logging
+
+
+# ------------------------------------------------------------
+# Testing
+# ------------------------------------------------------------
+pytest==8.2.1
+pytest-asyncio==0.23.7
+httpx==0.27.0                      # Also used for async test client
+
+
+# ============================================================
+# NOTES
+# ============================================================
+# 1. Frontend (React + TailwindCSS) dependencies are managed
+#    separately via package.json — not included here.
+#
+# 2. Database: PostgreSQL only. All session logs, scores, audit
+#    trails, and reports are stored in PostgreSQL via SQLAlchemy.
+#    Run migrations with: alembic upgrade head
+#
+# 3. For local LLM inference via Ollama, install the Ollama
+#    desktop binary separately: https://ollama.com
+#    No pip package is needed; communicate via REST API.
+#    Recommended models for iGPU/CPU: llama3.2:1b or mistral:7b-q4
+#
+# 4. Running on iGPU / CPU (no dedicated GPU):
+#    PyTorch is set to CPU-only builds — no CUDA needed.
+#    bitsandbytes is excluded (requires CUDA).
+#    For the CNN classifier, keep input frames at 48x48 or 64x64.
+#    Voice note / Whisper features are excluded from this build.
+#
+# 5. Install all dependencies with:
+#    pip install -r requirements.txt
+# ============================================================
