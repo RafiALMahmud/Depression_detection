@@ -18,6 +18,11 @@ DEV_SUPER_ADMINS = [
     {"full_name": "Super Admin 3", "email": "yaad@gmail.com", "password": "12345678"},
 ]
 
+# Canonical email -> legacy aliases to auto-migrate on startup.
+LEGACY_EMAIL_ALIASES = {
+    "rafi.almahmud.007@gmail.com": ["rafi.almahmud.007", "rafi.almahmud.007@gmail"],
+}
+
 
 def _get_or_create_user(
     db: Session,
@@ -28,10 +33,24 @@ def _get_or_create_user(
     role: UserRole,
     is_active: bool = True,
     reset_password: bool = False,
+    legacy_emails: list[str] | None = None,
 ) -> User:
     normalized_email = email.strip().lower()
-    user = db.scalar(select(User).where(User.email == normalized_email))
+    candidate_emails = [normalized_email]
+    if legacy_emails:
+        for legacy_email in legacy_emails:
+            normalized_legacy = legacy_email.strip().lower()
+            if normalized_legacy and normalized_legacy not in candidate_emails:
+                candidate_emails.append(normalized_legacy)
+
+    users = db.scalars(select(User).where(User.email.in_(candidate_emails))).all()
+    user = next((candidate for candidate in users if candidate.email == normalized_email), None)
+    if not user and users:
+        user = users[0]
+
     if user:
+        if user.email != normalized_email:
+            user.email = normalized_email
         if user.role != role:
             user.role = role
         user.full_name = full_name
@@ -63,6 +82,7 @@ def seed_initial_data(db: Session) -> None:
                 password=account["password"],
                 role=UserRole.SUPER_ADMIN,
                 reset_password=True,
+                legacy_emails=LEGACY_EMAIL_ALIASES.get(account["email"], []),
             )
         )
 

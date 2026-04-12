@@ -61,7 +61,11 @@ def resolve_python_executable(root_dir: Path) -> str:
 
 
 def check_python_dependencies(python_exe: str, backend_dir: Path) -> None:
-    probe = "import fastapi,uvicorn,sqlalchemy,psycopg2"
+    probe = (
+        "import fastapi,uvicorn,sqlalchemy,psycopg2;"
+        "from passlib.context import CryptContext;"
+        "CryptContext(schemes=['bcrypt'], deprecated='auto').hash('mindwell-smoke-test')"
+    )
     try:
         result = subprocess.run(
             [python_exe, "-c", probe],
@@ -78,6 +82,14 @@ def check_python_dependencies(python_exe: str, backend_dir: Path) -> None:
             f"Timeout command: {exc.cmd}"
         ) from exc
     if result.returncode != 0:
+        error_output = (result.stderr.strip() or result.stdout.strip()).lower()
+        if "bcrypt" in error_output and ("72 bytes" in error_output or "__about__" in error_output):
+            raise RuntimeError(
+                "Detected incompatible bcrypt/passlib versions in your virtual environment.\n"
+                "Run from project root:\n"
+                "  .\\venv\\Scripts\\python.exe -m pip install --upgrade --force-reinstall -r backend\\requirements.txt\n"
+                "If you use .venv instead, replace the path accordingly."
+            )
         raise RuntimeError(
             "Backend dependencies are missing in root .venv.\n"
             "Run from project root:\n"
