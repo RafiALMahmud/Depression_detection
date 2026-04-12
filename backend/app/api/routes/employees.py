@@ -1,5 +1,7 @@
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -47,6 +49,15 @@ def _get_employee_or_404(db: Session, employee_id: int) -> Employee:
     return employee
 
 
+def _generate_employee_code(db: Session) -> str:
+    for _ in range(20):
+        generated_code = f"EMP{secrets.randbelow(1_000_000):06d}"
+        exists = db.scalar(select(Employee.id).where(Employee.employee_code == generated_code))
+        if not exists:
+            return generated_code
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to generate employee code")
+
+
 @router.get("", response_model=EmployeeListResponse)
 def list_employees(
     page: int = Query(default=1, ge=1),
@@ -83,10 +94,7 @@ def create_employee(
     company = get_company_or_404(db, payload.company_id)
     department = get_department_or_404(db, payload.department_id)
     validate_department_belongs_to_company(department, payload.company_id)
-    if payload.employee_code:
-        duplicate_code = db.scalar(select(Employee).where(Employee.employee_code == payload.employee_code))
-        if duplicate_code:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Employee code already exists")
+    employee_code = _generate_employee_code(db)
 
     user = create_user(
         db,
@@ -101,7 +109,7 @@ def create_employee(
         user_id=user.id,
         company_id=payload.company_id,
         department_id=payload.department_id,
-        employee_code=payload.employee_code,
+        employee_code=employee_code,
         job_title=payload.job_title,
     )
     db.add(employee)
@@ -178,13 +186,6 @@ def update_employee(
     department = get_department_or_404(db, next_department_id)
     validate_department_belongs_to_company(department, next_company_id)
 
-    if payload.employee_code is not None:
-        conflict = db.scalar(
-            select(Employee).where(and_(Employee.employee_code == payload.employee_code, Employee.id != employee.id))
-        )
-        if conflict:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Employee code already exists")
-        employee.employee_code = payload.employee_code
     if payload.job_title is not None:
         employee.job_title = payload.job_title
 

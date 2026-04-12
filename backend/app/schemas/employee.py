@@ -12,7 +12,6 @@ class EmployeeCreate(BaseModel):
     email: str
     company_id: int = Field(ge=1)
     department_id: int = Field(ge=1)
-    employee_code: str | None = Field(default=None, min_length=1, max_length=64)
     job_title: str | None = Field(default=None, max_length=128)
 
     @field_validator("email")
@@ -23,21 +22,11 @@ class EmployeeCreate(BaseModel):
             raise ValueError("Invalid email address")
         return email
 
-    @field_validator("employee_code")
-    @classmethod
-    def normalize_employee_code(cls, value: str | None) -> str | None:
-        if value is None:
-            return value
-        code = value.strip().upper()
-        return code or None
-
-
 class EmployeeUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=150)
     email: str | None = None
     company_id: int | None = Field(default=None, ge=1)
     department_id: int | None = Field(default=None, ge=1)
-    employee_code: str | None = Field(default=None, min_length=1, max_length=64)
     job_title: str | None = Field(default=None, max_length=128)
     is_active: bool | None = None
 
@@ -50,15 +39,6 @@ class EmployeeUpdate(BaseModel):
         if not EMAIL_PATTERN.match(email):
             raise ValueError("Invalid email address")
         return email
-
-    @field_validator("employee_code")
-    @classmethod
-    def normalize_employee_code(cls, value: str | None) -> str | None:
-        if value is None:
-            return value
-        code = value.strip().upper()
-        return code or None
-
 
 class EmployeeRead(ORMBase):
     id: int

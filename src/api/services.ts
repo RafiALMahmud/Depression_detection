@@ -296,7 +296,6 @@ export interface EmployeePayload {
   email: string;
   company_id: number;
   department_id: number;
-  employee_code?: string | null;
   job_title?: string | null;
 }
 
@@ -305,7 +304,6 @@ export interface EmployeeUpdatePayload {
   email?: string;
   company_id?: number;
   department_id?: number;
-  employee_code?: string | null;
   job_title?: string | null;
   is_active?: boolean;
 }

@@ -705,7 +705,7 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
       return (
         <EntitySection<EmployeeProfile>
           title="Employee"
-          description="Choose company first, then department, then send invitation onboarding."
+          description="Choose company first, then department. Employee code is auto-generated during invitation onboarding."
           createButtonLabel="Invite Employee"
           columns={employeeColumns}
           fields={(values) => [
@@ -721,7 +721,6 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
               placeholder: String(values.company_id ?? '').trim() ? 'Select a department' : 'Select company first',
               disabled: !String(values.company_id ?? '').trim(),
             },
-            { name: 'employee_code', label: 'Employee Code', type: 'text' },
             { name: 'job_title', label: 'Job Title', type: 'text' },
             activeField,
           ]}
@@ -748,7 +747,6 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
             email: item?.user.email ?? '',
             company_id: item ? String(item.company_id) : '',
             department_id: item ? String(item.department_id) : '',
-            employee_code: item?.employee_code ?? '',
             job_title: item?.job_title ?? '',
             is_active: item?.user.is_active ?? false,
           })}
@@ -757,7 +755,6 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
             email: String(values.email).trim(),
             company_id: Number(values.company_id),
             department_id: Number(values.department_id),
-            employee_code: String(values.employee_code || '').trim() || null,
             job_title: String(values.job_title || '').trim() || null,
           })}
           toUpdatePayload={(values) => {
@@ -766,7 +763,6 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
               email: String(values.email).trim(),
               company_id: Number(values.company_id),
               department_id: Number(values.department_id),
-              employee_code: String(values.employee_code || '').trim() || null,
               job_title: String(values.job_title || '').trim() || null,
               is_active: Boolean(values.is_active),
             };
