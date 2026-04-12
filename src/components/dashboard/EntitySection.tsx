@@ -14,6 +14,7 @@ interface EntitySectionProps<T> {
   title: string;
   description: string;
   createButtonLabel?: string;
+  showCreateButton?: boolean;
   columns: TableColumn<T>[];
   fields: FormFieldConfig[] | ((values: FormValues, mode: 'create' | 'edit') => FormFieldConfig[]);
   filters?: FilterConfig[];
@@ -43,6 +44,7 @@ export const EntitySection = <T,>({
   title,
   description,
   createButtonLabel = 'Create New',
+  showCreateButton = true,
   columns,
   fields,
   filters = [],
@@ -192,26 +194,52 @@ export const EntitySection = <T,>({
 
   const filterControls = useMemo(
     () =>
-      filters.map((filter) => (
-        <label key={filter.key} className="mw-field mw-filter-item">
-          <span className="mw-field-label">{filter.label}</span>
-          <select
-            value={filterState[filter.key] ?? ''}
-            onChange={(event) => {
-              setFilterState((prev) => ({ ...prev, [filter.key]: event.target.value }));
-              setPage(1);
-            }}
-            className="mw-input"
-          >
-            <option value="">All</option>
-            {filter.options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
+      filters.map((filter) => {
+        const options = typeof filter.options === 'function' ? filter.options(filterState) : filter.options;
+        const requiresKey = filter.dependsOn;
+        const requiresSelected = requiresKey ? Boolean(filterState[requiresKey]) : true;
+        return (
+          <label key={filter.key} className="mw-field mw-filter-item">
+            <span className="mw-field-label">{filter.label}</span>
+            <select
+              value={filterState[filter.key] ?? ''}
+              onChange={(event) => {
+                setFilterState((prev) => {
+                  const next = { ...prev, [filter.key]: event.target.value };
+                  filters.forEach((candidateFilter) => {
+                    if (candidateFilter.dependsOn !== filter.key) {
+                      return;
+                    }
+                    const candidateOptions =
+                      typeof candidateFilter.options === 'function'
+                        ? candidateFilter.options(next)
+                        : candidateFilter.options;
+                    const selectedValue = next[candidateFilter.key];
+                    if (selectedValue && !candidateOptions.some((option) => option.value === selectedValue)) {
+                      next[candidateFilter.key] = '';
+                    }
+                  });
+                  return next;
+                });
+                setPage(1);
+              }}
+              className="mw-input"
+              disabled={!requiresSelected}
+            >
+              <option value="">
+                {requiresSelected
+                  ? 'All'
+                  : `Select ${filter.dependsOnLabel ?? requiresKey ?? 'parent'} first`}
               </option>
-            ))}
-          </select>
-        </label>
-      )),
+              {options.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        );
+      }),
     [filters, filterState],
   );
 
@@ -224,9 +252,11 @@ export const EntitySection = <T,>({
             <h2 className="mw-entity-title">{title}</h2>
             <p className="mw-entity-description">{description}</p>
           </div>
-          <button type="button" onClick={openCreate} className="mw-btn-primary">
-            {createButtonLabel}
-          </button>
+          {showCreateButton ? (
+            <button type="button" onClick={openCreate} className="mw-btn-primary">
+              {createButtonLabel}
+            </button>
+          ) : null}
         </div>
 
         <div className="mw-entity-controls">
@@ -303,7 +333,11 @@ export const EntitySection = <T,>({
       {meta.total === 0 && !loading ? (
         <div className="mw-card mw-empty-state">
           <h3>No records yet</h3>
-          <p>Use the create button above to add your first item.</p>
+          <p>
+            {showCreateButton
+              ? 'Use the create button above to add your first item.'
+              : 'No records match your current filters.'}
+          </p>
         </div>
       ) : null}
 

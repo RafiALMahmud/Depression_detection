@@ -149,7 +149,6 @@ export interface SystemAdminCreatePayload {
 export interface SystemAdminUpdatePayload {
   full_name?: string;
   email?: string;
-  password?: string;
   is_active?: boolean;
 }
 
@@ -207,7 +206,6 @@ export interface CompanyHeadPayload {
 export interface CompanyHeadUpdatePayload {
   full_name?: string;
   email?: string;
-  password?: string;
   company_id?: number;
   is_active?: boolean;
 }
@@ -268,7 +266,6 @@ export interface DepartmentManagerPayload {
 export interface DepartmentManagerUpdatePayload {
   full_name?: string;
   email?: string;
-  password?: string;
   company_id?: number;
   department_id?: number;
   is_active?: boolean;
@@ -306,13 +303,24 @@ export interface EmployeePayload {
 export interface EmployeeUpdatePayload {
   full_name?: string;
   email?: string;
-  password?: string;
   company_id?: number;
   department_id?: number;
   employee_code?: string | null;
   job_title?: string | null;
   is_active?: boolean;
 }
+
+export const superAdminApi = {
+  list: async (query: ListQuery): Promise<PaginatedResponse<User>> => {
+    const response = await apiClient.get<PaginatedResponse<User>>('/super-admins', {
+      params: toListParams(query),
+    });
+    return response.data;
+  },
+  remove: async (id: number): Promise<void> => {
+    await apiClient.delete(`/super-admins/${id}`);
+  },
+};
 
 export const employeesApi = {
   list: async (query: ListQuery): Promise<PaginatedResponse<EmployeeProfile>> => {

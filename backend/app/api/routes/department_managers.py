@@ -171,7 +171,6 @@ def update_department_manager(
         user=profile.user,
         full_name=payload.full_name,
         email=payload.email,
-        password=payload.password,
         is_active=payload.is_active,
     )
     sync_pending_invitation_email(profile.user)

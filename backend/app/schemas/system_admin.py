@@ -24,7 +24,6 @@ class SystemAdminCreate(BaseModel):
 class SystemAdminUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=150)
     email: str | None = None
-    password: str | None = Field(default=None, min_length=8, max_length=128)
     is_active: bool | None = None
 
     @field_validator("email")
@@ -50,3 +49,7 @@ class SystemAdminListResponse(BaseModel):
     items: list[SystemAdminRead]
     meta: PaginationMeta
 
+
+class SuperAdminListResponse(BaseModel):
+    items: list[UserRead]
+    meta: PaginationMeta

@@ -101,7 +101,6 @@ def update_system_admin(
         user=profile.user,
         full_name=payload.full_name,
         email=payload.email,
-        password=payload.password,
         is_active=payload.is_active,
     )
     log_audit(
@@ -138,4 +137,3 @@ def delete_system_admin(
         entity_id=profile_id,
     )
     db.commit()
-

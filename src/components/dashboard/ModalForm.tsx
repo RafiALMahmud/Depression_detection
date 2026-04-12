@@ -76,6 +76,8 @@ export const ModalForm = ({
                     {...commonProps}
                     value={String(value ?? '')}
                     options={field.options ?? []}
+                    placeholder={field.placeholder}
+                    disabled={field.disabled}
                     onChange={(nextValue) => onChange(field.name, nextValue)}
                   />
                 </div>

@@ -12,6 +12,7 @@ import {
   employeesApi,
   invitationsApi,
   optionsApi,
+  superAdminApi,
   systemAdminApi,
   type CompanyHeadPayload,
   type CompanyHeadUpdatePayload,
@@ -39,6 +40,7 @@ import type {
   SuperAdminSummary,
   SystemAdminProfile,
   SystemAdminSummary,
+  User,
 } from '../types/domain';
 import { getDashboardPathByRole } from '../utils/roles';
 
@@ -47,6 +49,7 @@ type FormValues = Record<string, string | boolean>;
 type InviteManagedProfile = CompanyHeadProfile | DepartmentManagerProfile | EmployeeProfile;
 
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const PRIMARY_SUPER_ADMIN_EMAIL = 'rafi.almahmud.007@gmail.com';
 
 const activeField: FormFieldConfig = {
   name: 'is_active',
@@ -85,7 +88,7 @@ const validateSystemAdminForm = (values: FormValues, mode: 'create' | 'edit'): R
   return errors;
 };
 
-const validateInvitedForm = (values: FormValues, mode: 'create' | 'edit'): Record<string, string> => {
+const validateInvitedForm = (values: FormValues, _mode: 'create' | 'edit'): Record<string, string> => {
   const errors: Record<string, string> = {};
   if (!String(values.full_name ?? '').trim()) errors.full_name = 'Full name is required';
   if (!String(values.email ?? '').trim()) {
@@ -93,8 +96,6 @@ const validateInvitedForm = (values: FormValues, mode: 'create' | 'edit'): Recor
   } else if (!validateEmail(String(values.email))) {
     errors.email = 'Invalid email format';
   }
-  const password = String(values.password ?? '');
-  if (mode === 'edit' && password && password.length < 8) errors.password = 'Password must be at least 8 characters';
   return errors;
 };
 
@@ -118,6 +119,11 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
     if (!user) return false;
     return isSuperMode ? user.role === 'super_admin' : user.role === 'system_admin';
   }, [isSuperMode, user]);
+
+  const isPrimarySuperAdmin = useMemo(() => {
+    if (!user || user.role !== 'super_admin') return false;
+    return user.email.trim().toLowerCase() === PRIMARY_SUPER_ADMIN_EMAIL;
+  }, [user]);
 
   useEffect(() => {
     if (user) {
@@ -163,24 +169,15 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
     [companyOptions],
   );
 
-  const allDepartmentSelectOptions = useMemo(
-    () =>
-      departmentOptions.map((department) => ({
-        value: String(department.id),
-        label: `${department.name} (${department.code})`,
-      })),
-    [departmentOptions],
-  );
-
   const getDepartmentOptionsByCompany = useCallback(
     (companyIdRaw: string | boolean | undefined) => {
       const companyId = Number(companyIdRaw);
-      if (!companyId) return allDepartmentSelectOptions;
+      if (!companyId) return [];
       return departmentOptions
         .filter((department) => department.company_id === companyId)
         .map((department) => ({ value: String(department.id), label: `${department.name} (${department.code})` }));
     },
-    [departmentOptions, allDepartmentSelectOptions],
+    [departmentOptions],
   );
 
   const refreshAfterCrud = useCallback(async () => {
@@ -261,6 +258,7 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
   const sections = isSuperMode
     ? [
         { id: 'overview', label: 'Overview' },
+        ...(isPrimarySuperAdmin ? [{ id: 'super-admins', label: 'Super Admins' }] : []),
         { id: 'system-admins', label: 'System Admins' },
         { id: 'companies', label: 'Companies' },
         { id: 'company-heads', label: 'Company Heads' },
@@ -276,6 +274,12 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
         { id: 'department-managers', label: 'Department Managers' },
         { id: 'employees', label: 'Employees' },
       ];
+
+  useEffect(() => {
+    if (!sections.some((section) => section.id === activeSectionId)) {
+      setActiveSectionId('overview');
+    }
+  }, [activeSectionId, sections]);
 
   const renderOverview = () => {
     if (summaryLoading || !summary) {
@@ -315,10 +319,17 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
     { key: 'created_at', title: 'Created', render: (item) => new Date(item.created_at).toLocaleDateString() },
   ];
 
+  const superAdminColumns: TableColumn<User>[] = [
+    { key: 'full_name', title: 'Name', render: (item) => item.full_name },
+    { key: 'email', title: 'Email', render: (item) => item.email },
+    { key: 'status', title: 'Status', render: (item) => (item.is_active ? 'Active' : 'Inactive') },
+    { key: 'created_at', title: 'Created', render: (item) => new Date(item.created_at).toLocaleDateString() },
+  ];
+
   const systemAdminFields: FormFieldConfig[] = [
     { name: 'full_name', label: 'Full Name', type: 'text', required: true },
     { name: 'email', label: 'Email', type: 'email', required: true },
-    { name: 'password', label: 'Password', type: 'password' },
+    { name: 'password', label: 'Password', type: 'password', required: true, hiddenOnEdit: true },
     { ...activeField, hiddenOnCreate: false },
   ];
 
@@ -347,7 +358,6 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
     { name: 'full_name', label: 'Full Name', type: 'text', required: true },
     { name: 'email', label: 'Email', type: 'email', required: true },
     { name: 'company_id', label: 'Company', type: 'select', required: true, options: companySelectOptions },
-    { name: 'password', label: 'Set Password (Optional)', type: 'password', hiddenOnCreate: true },
     activeField,
   ];
 
@@ -389,6 +399,31 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
       return renderOverview();
     }
 
+    if (activeSectionId === 'super-admins' && isSuperMode && isPrimarySuperAdmin) {
+      return (
+        <EntitySection<User>
+          title="Super Admin"
+          description="Primary super admin can remove any super admin account."
+          showCreateButton={false}
+          enableEdit={false}
+          columns={superAdminColumns}
+          fields={[]}
+          reloadKey={sectionReloadKey}
+          fetchItems={(query) => superAdminApi.list(query)}
+          createItem={async () => ({})}
+          updateItem={async () => ({})}
+          deleteItem={(id) => superAdminApi.remove(id)}
+          getItemId={(item) => item.id}
+          getDeleteLabel={(item) => item.email}
+          toFormValues={() => ({})}
+          toCreatePayload={() => ({})}
+          toUpdatePayload={() => ({})}
+          deleteSuccessMessage="Super admin removed successfully"
+          onAfterChange={refreshAfterCrud}
+        />
+      );
+    }
+
     if (activeSectionId === 'system-admins' && isSuperMode) {
       return (
         <EntitySection<SystemAdminProfile>
@@ -416,13 +451,11 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
             is_active: Boolean(values.is_active),
           })}
           toUpdatePayload={(values) => {
-            const payload: SystemAdminUpdatePayload = {
+            return {
               full_name: String(values.full_name).trim(),
               email: String(values.email).trim(),
               is_active: Boolean(values.is_active),
             };
-            if (String(values.password).trim()) payload.password = String(values.password);
-            return payload;
           }}
           validate={(values, modeArg) => validateSystemAdminForm(values, modeArg)}
           onAfterChange={refreshAfterCrud}
@@ -496,7 +529,6 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
             full_name: item?.user.full_name ?? '',
             email: item?.user.email ?? '',
             company_id: item ? String(item.company_id) : '',
-            password: '',
             is_active: item?.user.is_active ?? false,
           })}
           toCreatePayload={(values) => ({
@@ -505,14 +537,12 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
             company_id: Number(values.company_id),
           })}
           toUpdatePayload={(values) => {
-            const payload: CompanyHeadUpdatePayload = {
+            return {
               full_name: String(values.full_name).trim(),
               email: String(values.email).trim(),
               company_id: Number(values.company_id),
               is_active: Boolean(values.is_active),
             };
-            if (String(values.password).trim()) payload.password = String(values.password);
-            return payload;
           }}
           validate={(values, modeArg) => {
             const errors = validateInvitedForm(values, modeArg);
@@ -597,14 +627,21 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
               type: 'select',
               required: true,
               options: getDepartmentOptionsByCompany(values.company_id),
+              placeholder: String(values.company_id ?? '').trim() ? 'Select a department' : 'Select company first',
+              disabled: !String(values.company_id ?? '').trim(),
             },
-            { name: 'password', label: 'Set Password (Optional)', type: 'password', hiddenOnCreate: true },
             activeField,
           ]}
           reloadKey={sectionReloadKey}
           filters={[
             { key: 'companyId', label: 'Company Filter', options: companySelectOptions },
-            { key: 'departmentId', label: 'Department Filter', options: allDepartmentSelectOptions },
+            {
+              key: 'departmentId',
+              label: 'Department Filter',
+              options: (filterState) => getDepartmentOptionsByCompany(filterState.companyId),
+              dependsOn: 'companyId',
+              dependsOnLabel: 'company',
+            },
           ]}
           rowActions={invitationRowActions<DepartmentManagerProfile>()}
           fetchItems={(query: ListQuery) => departmentManagersApi.list(query)}
@@ -618,7 +655,6 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
             email: item?.user.email ?? '',
             company_id: item ? String(item.company_id) : '',
             department_id: item ? String(item.department_id) : '',
-            password: '',
             is_active: item?.user.is_active ?? false,
           })}
           toCreatePayload={(values) => ({
@@ -628,15 +664,13 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
             department_id: Number(values.department_id),
           })}
           toUpdatePayload={(values) => {
-            const payload: DepartmentManagerUpdatePayload = {
+            return {
               full_name: String(values.full_name).trim(),
               email: String(values.email).trim(),
               company_id: Number(values.company_id),
               department_id: Number(values.department_id),
               is_active: Boolean(values.is_active),
             };
-            if (String(values.password).trim()) payload.password = String(values.password);
-            return payload;
           }}
           validate={(values, modeArg) => {
             const errors = validateInvitedForm(values, modeArg);
@@ -684,16 +718,23 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
               type: 'select',
               required: true,
               options: getDepartmentOptionsByCompany(values.company_id),
+              placeholder: String(values.company_id ?? '').trim() ? 'Select a department' : 'Select company first',
+              disabled: !String(values.company_id ?? '').trim(),
             },
             { name: 'employee_code', label: 'Employee Code', type: 'text' },
             { name: 'job_title', label: 'Job Title', type: 'text' },
-            { name: 'password', label: 'Set Password (Optional)', type: 'password', hiddenOnCreate: true },
             activeField,
           ]}
           reloadKey={sectionReloadKey}
           filters={[
             { key: 'companyId', label: 'Company Filter', options: companySelectOptions },
-            { key: 'departmentId', label: 'Department Filter', options: allDepartmentSelectOptions },
+            {
+              key: 'departmentId',
+              label: 'Department Filter',
+              options: (filterState) => getDepartmentOptionsByCompany(filterState.companyId),
+              dependsOn: 'companyId',
+              dependsOnLabel: 'company',
+            },
           ]}
           rowActions={invitationRowActions<EmployeeProfile>()}
           fetchItems={(query: ListQuery) => employeesApi.list(query)}
@@ -709,7 +750,6 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
             department_id: item ? String(item.department_id) : '',
             employee_code: item?.employee_code ?? '',
             job_title: item?.job_title ?? '',
-            password: '',
             is_active: item?.user.is_active ?? false,
           })}
           toCreatePayload={(values) => ({
@@ -721,7 +761,7 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
             job_title: String(values.job_title || '').trim() || null,
           })}
           toUpdatePayload={(values) => {
-            const payload: EmployeeUpdatePayload = {
+            return {
               full_name: String(values.full_name).trim(),
               email: String(values.email).trim(),
               company_id: Number(values.company_id),
@@ -730,8 +770,6 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
               job_title: String(values.job_title || '').trim() || null,
               is_active: Boolean(values.is_active),
             };
-            if (String(values.password).trim()) payload.password = String(values.password);
-            return payload;
           }}
           validate={(values, modeArg) => {
             const errors = validateInvitedForm(values, modeArg);

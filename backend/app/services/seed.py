@@ -120,8 +120,19 @@ def seed_initial_data(db: Session) -> None:
         role=UserRole.COMPANY_HEAD,
         reset_password=True,
     )
-    company_head = db.scalar(select(CompanyHead).where(CompanyHead.user_id == company_head_user.id))
-    if not company_head:
+    company_head_by_user = db.scalar(select(CompanyHead).where(CompanyHead.user_id == company_head_user.id))
+    company_head_by_company = db.scalar(select(CompanyHead).where(CompanyHead.company_id == company.id))
+    if company_head_by_user and company_head_by_company and company_head_by_user.id != company_head_by_company.id:
+        # Keep the company-owned row and drop the duplicate user-owned mapping.
+        db.delete(company_head_by_user)
+        db.flush()
+        company_head_by_user = None
+
+    company_head = company_head_by_company or company_head_by_user
+    if company_head:
+        company_head.user_id = company_head_user.id
+        company_head.company_id = company.id
+    else:
         db.add(CompanyHead(user_id=company_head_user.id, company_id=company.id))
 
     hr_department = db.scalar(
@@ -176,8 +187,26 @@ def seed_initial_data(db: Session) -> None:
             role=UserRole.DEPARTMENT_MANAGER,
             reset_password=True,
         )
-        manager_profile = db.scalar(select(DepartmentManager).where(DepartmentManager.user_id == manager_user.id))
-        if not manager_profile:
+        manager_profile_by_user = db.scalar(select(DepartmentManager).where(DepartmentManager.user_id == manager_user.id))
+        manager_profile_by_department = db.scalar(
+            select(DepartmentManager).where(DepartmentManager.department_id == manager_data["department_id"])
+        )
+        if (
+            manager_profile_by_user
+            and manager_profile_by_department
+            and manager_profile_by_user.id != manager_profile_by_department.id
+        ):
+            # Department mapping is authoritative; drop conflicting user mapping.
+            db.delete(manager_profile_by_user)
+            db.flush()
+            manager_profile_by_user = None
+
+        manager_profile = manager_profile_by_department or manager_profile_by_user
+        if manager_profile:
+            manager_profile.user_id = manager_user.id
+            manager_profile.company_id = company.id
+            manager_profile.department_id = manager_data["department_id"]
+        else:
             db.add(
                 DepartmentManager(
                     user_id=manager_user.id,
@@ -230,8 +259,24 @@ def seed_initial_data(db: Session) -> None:
             role=UserRole.EMPLOYEE,
             reset_password=True,
         )
-        employee_profile = db.scalar(select(Employee).where(Employee.user_id == employee_user.id))
-        if not employee_profile:
+        employee_profile_by_user = db.scalar(select(Employee).where(Employee.user_id == employee_user.id))
+        employee_profile_by_code = db.scalar(
+            select(Employee).where(Employee.employee_code == employee_data["employee_code"])
+        )
+        if employee_profile_by_user and employee_profile_by_code and employee_profile_by_user.id != employee_profile_by_code.id:
+            # Employee-code mapping is authoritative; drop conflicting user mapping.
+            db.delete(employee_profile_by_user)
+            db.flush()
+            employee_profile_by_user = None
+
+        employee_profile = employee_profile_by_code or employee_profile_by_user
+        if employee_profile:
+            employee_profile.user_id = employee_user.id
+            employee_profile.company_id = company.id
+            employee_profile.department_id = employee_data["department_id"]
+            employee_profile.employee_code = employee_data["employee_code"]
+            employee_profile.job_title = employee_data["job_title"]
+        else:
             db.add(
                 Employee(
                     user_id=employee_user.id,

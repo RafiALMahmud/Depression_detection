@@ -9,12 +9,14 @@ from app.api.routes import (
     departments,
     employees,
     invitations,
+    super_admins,
     system_admins,
 )
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
 api_router.include_router(dashboard.router)
+api_router.include_router(super_admins.router)
 api_router.include_router(system_admins.router)
 api_router.include_router(companies.router)
 api_router.include_router(company_heads.router)

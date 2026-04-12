@@ -25,7 +25,6 @@ class DepartmentManagerCreate(BaseModel):
 class DepartmentManagerUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=150)
     email: str | None = None
-    password: str | None = Field(default=None, min_length=8, max_length=128)
     company_id: int | None = Field(default=None, ge=1)
     department_id: int | None = Field(default=None, ge=1)
     is_active: bool | None = None

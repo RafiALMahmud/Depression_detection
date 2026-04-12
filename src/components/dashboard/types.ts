@@ -12,6 +12,7 @@ export interface FormFieldConfig {
   label: string;
   type: FieldType;
   placeholder?: string;
+  disabled?: boolean;
   required?: boolean;
   options?: SelectOption[];
   hiddenOnEdit?: boolean;
@@ -21,7 +22,9 @@ export interface FormFieldConfig {
 export interface FilterConfig {
   key: string;
   label: string;
-  options: SelectOption[];
+  options: SelectOption[] | ((filterState: Record<string, string>) => SelectOption[]);
+  dependsOn?: string;
+  dependsOnLabel?: string;
 }
 
 export interface TableColumn<T> {

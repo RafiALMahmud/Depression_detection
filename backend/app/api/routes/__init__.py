@@ -1,4 +1,4 @@
-from . import auth, companies, company_heads, dashboard, department_managers, departments, employees, invitations, system_admins
+from . import auth, companies, company_heads, dashboard, department_managers, departments, employees, invitations, super_admins, system_admins
 
 __all__ = [
     "auth",
@@ -9,5 +9,6 @@ __all__ = [
     "departments",
     "employees",
     "invitations",
+    "super_admins",
     "system_admins",
 ]
