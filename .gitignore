@@ -1,5 +1,6 @@
 node_modules/
 venv/
+.venv/
 dist/
 
 # Python cache artifacts
@@ -9,7 +10,14 @@ __pycache__/
 # Env and local settings
 .env
 .env.*
+!.env.example
+!backend/.env.example
 
 # OS/editor noise
 .DS_Store
 Thumbs.db
+
+# Runtime logs
+*.log
+*.out
+*.err

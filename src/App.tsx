@@ -261,8 +261,8 @@ function App() {
           <a href="#scoring">Scoring</a>
           <a href="#tech">Tech</a>
         </nav>
-        <a className="nav-cta" href="#contact">
-          Request a Demo
+        <a className="nav-cta" href="/sign-in">
+          Sign In
         </a>
       </header>
 

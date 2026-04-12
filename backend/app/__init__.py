@@ -1,0 +1,2 @@
+"""MindWell backend application package."""
+
