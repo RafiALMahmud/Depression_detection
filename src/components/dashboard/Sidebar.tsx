@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 interface SidebarSection {
   id: string;
   label: string;
@@ -14,9 +16,11 @@ export const Sidebar = ({ sections, roleLabel, activeSectionId, onSelect }: Side
   return (
     <aside className="mw-sidebar">
       <div className="mw-sidebar-brand">
-        <div className="mw-sidebar-brand-title">
-          Mind<span>Well</span>
-        </div>
+        <Link to="/" className="mw-sidebar-brand-link" aria-label="Go to MindWell landing page">
+          <div className="mw-sidebar-brand-title">
+            Mind<span>Well</span>
+          </div>
+        </Link>
         <p className="mw-sidebar-brand-copy">Corporate wellness command center</p>
         <span className="mw-sidebar-role">{roleLabel}</span>
       </div>

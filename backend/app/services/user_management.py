@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.security import get_password_hash
 from app.models.enums import UserRole
 from app.models.user import User
+from app.services.invitations import purge_unaccepted_expired_invitations
 
 
 def get_user_by_email(db: Session, email: str) -> User | None:
@@ -13,6 +14,7 @@ def get_user_by_email(db: Session, email: str) -> User | None:
 
 def assert_email_available(db: Session, email: str, exclude_user_id: int | None = None) -> None:
     email_lower = email.strip().lower()
+    purge_unaccepted_expired_invitations(db, email=email_lower)
     existing = get_user_by_email(db, email_lower)
     if existing and existing.id != exclude_user_id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")

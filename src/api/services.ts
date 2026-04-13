@@ -2,16 +2,25 @@ import { apiClient } from './client';
 import type {
   AuthResponse,
   Company,
+  CompanyDepartmentBreakdown,
+  CompanyHeadSummary,
   CompanyHeadProfile,
   CompanyOption,
   Department,
+  DepartmentManagerSummary,
   DepartmentManagerProfile,
   DepartmentOption,
   EmployeeProfile,
+  InvitationListItem,
   PaginatedResponse,
+  PaginationMeta,
+  SummaryInvitationPreview,
+  SummaryUserPreview,
   SuperAdminSummary,
   SystemAdminProfile,
   SystemAdminSummary,
+  UserRole,
+  InvitationStatus,
   User,
 } from '../types/domain';
 
@@ -23,6 +32,66 @@ export interface ListQuery {
   departmentId?: number;
 }
 
+export interface InvitationListQuery extends ListQuery {
+  role?: UserRole;
+  status?: InvitationStatus;
+}
+
+const ensureArray = <T,>(value: unknown): T[] => {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is T => item !== null && item !== undefined);
+};
+
+const normalizePaginationMeta = (meta: Partial<PaginationMeta> | null | undefined): PaginationMeta => {
+  const page = Number(meta?.page ?? 1);
+  const pageSize = Number(meta?.page_size ?? 10);
+  const total = Number(meta?.total ?? 0);
+  const totalPages = Number(meta?.total_pages ?? 1);
+
+  return {
+    page: Number.isFinite(page) && page > 0 ? page : 1,
+    page_size: Number.isFinite(pageSize) && pageSize > 0 ? pageSize : 10,
+    total: Number.isFinite(total) && total >= 0 ? total : 0,
+    total_pages: Number.isFinite(totalPages) && totalPages > 0 ? totalPages : 1,
+  };
+};
+
+const normalizePaginatedResponse = <T,>(payload: Partial<PaginatedResponse<T>> | null | undefined): PaginatedResponse<T> => ({
+  items: ensureArray<T>(payload?.items),
+  meta: normalizePaginationMeta(payload?.meta),
+});
+
+const normalizeCompanyHeadSummary = (
+  payload: CompanyHeadSummary | null | undefined,
+): CompanyHeadSummary => ({
+  company_id: payload?.company_id ?? 0,
+  company_name: payload?.company_name ?? 'MindWell Company',
+  total_departments: payload?.total_departments ?? 0,
+  total_department_managers: payload?.total_department_managers ?? 0,
+  total_employees: payload?.total_employees ?? 0,
+  active_invitations_count: payload?.active_invitations_count ?? 0,
+  completed_onboardings_count: payload?.completed_onboardings_count ?? 0,
+  department_breakdown: ensureArray<CompanyDepartmentBreakdown>(payload?.department_breakdown),
+  recent_invitations: ensureArray<SummaryInvitationPreview>(payload?.recent_invitations),
+  recent_employees: ensureArray<SummaryUserPreview>(payload?.recent_employees),
+});
+
+const normalizeDepartmentManagerSummary = (
+  payload: DepartmentManagerSummary | null | undefined,
+): DepartmentManagerSummary => ({
+  company_id: payload?.company_id ?? 0,
+  company_name: payload?.company_name ?? 'MindWell Company',
+  department_id: payload?.department_id ?? 0,
+  department_name: payload?.department_name ?? 'Assigned Department',
+  total_employees: payload?.total_employees ?? 0,
+  active_invitations_count: payload?.active_invitations_count ?? 0,
+  completed_onboardings_count: payload?.completed_onboardings_count ?? 0,
+  scanned_employees_count_placeholder: payload?.scanned_employees_count_placeholder ?? 0,
+  average_wellness_score_placeholder: payload?.average_wellness_score_placeholder ?? null,
+  recent_invitations: ensureArray<SummaryInvitationPreview>(payload?.recent_invitations),
+  recent_employees: ensureArray<SummaryUserPreview>(payload?.recent_employees),
+});
+
 const toListParams = (query: ListQuery = {}): Record<string, string | number> => {
   const params: Record<string, string | number> = {
     page: query.page ?? 1,
@@ -31,6 +100,13 @@ const toListParams = (query: ListQuery = {}): Record<string, string | number> =>
   if (query.search) params.search = query.search;
   if (query.companyId) params.company_id = query.companyId;
   if (query.departmentId) params.department_id = query.departmentId;
+  return params;
+};
+
+const toInvitationListParams = (query: InvitationListQuery = {}): Record<string, string | number> => {
+  const params = toListParams(query);
+  if (query.role) params.role = query.role;
+  if (query.status) params.status = query.status;
   return params;
 };
 
@@ -85,7 +161,10 @@ export interface InvitationActionResponse {
 export const authApi = {
   signIn: async (payload: LoginPayload): Promise<AuthResponse> => {
     const response = await apiClient.post<AuthResponse>('/auth/login', payload);
-    return response.data;
+    return {
+      ...response.data,
+      user: response.data.user,
+    };
   },
   me: async (): Promise<User> => {
     const response = await apiClient.get<User>('/auth/me');
@@ -97,6 +176,12 @@ export const authApi = {
 };
 
 export const invitationsApi = {
+  list: async (query: InvitationListQuery): Promise<PaginatedResponse<InvitationListItem>> => {
+    const response = await apiClient.get<PaginatedResponse<InvitationListItem>>('/invitations', {
+      params: toInvitationListParams(query),
+    });
+    return normalizePaginatedResponse<InvitationListItem>(response.data);
+  },
   validate: async (payload: InvitationValidatePayload): Promise<InvitationValidateResponse> => {
     const response = await apiClient.post<InvitationValidateResponse>('/invitations/validate', payload);
     return response.data;
@@ -123,6 +208,14 @@ export const dashboardApi = {
   systemAdminSummary: async (): Promise<SystemAdminSummary> => {
     const response = await apiClient.get<SystemAdminSummary>('/dashboard/system-admin/summary');
     return response.data;
+  },
+  companyHeadSummary: async (): Promise<CompanyHeadSummary> => {
+    const response = await apiClient.get<CompanyHeadSummary>('/dashboard/company-head/summary');
+    return normalizeCompanyHeadSummary(response.data);
+  },
+  departmentManagerSummary: async (): Promise<DepartmentManagerSummary> => {
+    const response = await apiClient.get<DepartmentManagerSummary>('/dashboard/department-manager/summary');
+    return normalizeDepartmentManagerSummary(response.data);
   },
 };
 
@@ -157,7 +250,7 @@ export const systemAdminApi = {
     const response = await apiClient.get<PaginatedResponse<SystemAdminProfile>>('/system-admins', {
       params: toListParams(query),
     });
-    return response.data;
+    return normalizePaginatedResponse<SystemAdminProfile>(response.data);
   },
   create: async (payload: SystemAdminCreatePayload): Promise<SystemAdminProfile> => {
     const response = await apiClient.post<SystemAdminProfile>('/system-admins', payload);
@@ -182,7 +275,7 @@ export interface CompanyPayload {
 export const companiesApi = {
   list: async (query: ListQuery): Promise<PaginatedResponse<Company>> => {
     const response = await apiClient.get<PaginatedResponse<Company>>('/companies', { params: toListParams(query) });
-    return response.data;
+    return normalizePaginatedResponse<Company>(response.data);
   },
   create: async (payload: CompanyPayload): Promise<Company> => {
     const response = await apiClient.post<Company>('/companies', payload);
@@ -215,7 +308,7 @@ export const companyHeadsApi = {
     const response = await apiClient.get<PaginatedResponse<CompanyHeadProfile>>('/company-heads', {
       params: toListParams(query),
     });
-    return response.data;
+    return normalizePaginatedResponse<CompanyHeadProfile>(response.data);
   },
   create: async (payload: CompanyHeadPayload): Promise<CompanyHeadProfile> => {
     const response = await apiClient.post<CompanyHeadProfile>('/company-heads', payload);
@@ -241,7 +334,7 @@ export interface DepartmentPayload {
 export const departmentsApi = {
   list: async (query: ListQuery): Promise<PaginatedResponse<Department>> => {
     const response = await apiClient.get<PaginatedResponse<Department>>('/departments', { params: toListParams(query) });
-    return response.data;
+    return normalizePaginatedResponse<Department>(response.data);
   },
   create: async (payload: DepartmentPayload): Promise<Department> => {
     const response = await apiClient.post<Department>('/departments', payload);
@@ -276,7 +369,7 @@ export const departmentManagersApi = {
     const response = await apiClient.get<PaginatedResponse<DepartmentManagerProfile>>('/department-managers', {
       params: toListParams(query),
     });
-    return response.data;
+    return normalizePaginatedResponse<DepartmentManagerProfile>(response.data);
   },
   create: async (payload: DepartmentManagerPayload): Promise<DepartmentManagerProfile> => {
     const response = await apiClient.post<DepartmentManagerProfile>('/department-managers', payload);
@@ -296,6 +389,7 @@ export interface EmployeePayload {
   email: string;
   company_id: number;
   department_id: number;
+  employee_code?: string | null;
   job_title?: string | null;
 }
 
@@ -304,6 +398,7 @@ export interface EmployeeUpdatePayload {
   email?: string;
   company_id?: number;
   department_id?: number;
+  employee_code?: string | null;
   job_title?: string | null;
   is_active?: boolean;
 }
@@ -313,7 +408,7 @@ export const superAdminApi = {
     const response = await apiClient.get<PaginatedResponse<User>>('/super-admins', {
       params: toListParams(query),
     });
-    return response.data;
+    return normalizePaginatedResponse<User>(response.data);
   },
   remove: async (id: number): Promise<void> => {
     await apiClient.delete(`/super-admins/${id}`);
@@ -323,7 +418,7 @@ export const superAdminApi = {
 export const employeesApi = {
   list: async (query: ListQuery): Promise<PaginatedResponse<EmployeeProfile>> => {
     const response = await apiClient.get<PaginatedResponse<EmployeeProfile>>('/employees', { params: toListParams(query) });
-    return response.data;
+    return normalizePaginatedResponse<EmployeeProfile>(response.data);
   },
   create: async (payload: EmployeePayload): Promise<EmployeeProfile> => {
     const response = await apiClient.post<EmployeeProfile>('/employees', payload);

@@ -6,6 +6,7 @@ interface FormInputProps {
   type?: 'text' | 'email' | 'password';
   placeholder?: string;
   required?: boolean;
+  disabled?: boolean;
   error?: string;
 }
 
@@ -17,6 +18,7 @@ export const FormInput = ({
   type = 'text',
   placeholder,
   required = false,
+  disabled = false,
   error,
 }: FormInputProps) => {
   return (
@@ -32,6 +34,7 @@ export const FormInput = ({
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
         className="mw-input"
+        disabled={disabled}
       />
       {error ? <span className="mw-field-error">{error}</span> : null}
     </label>

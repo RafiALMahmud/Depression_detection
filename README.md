@@ -179,10 +179,27 @@ From `D:\CSE471`:
 
 ```powershell
 npm run dev              # frontend only
+npm run dev:clean        # frontend with forced fresh Vite bundle
 npm run backend:dev      # backend only (with reload)
 npm run dev:full         # full stack via Python runner
+npm run dev:full:clean   # full stack after clearing Vite cache
 npm run prod:full        # production-like local run
 npm run backend:migrate  # run backend migrations
 npm run backend:seed     # manual seed
+npm run clean:vite-cache # clear Vite HMR/prebundle cache only
+```
+
+## If Dashboard Route Looks Blank During Dev
+
+The frontend now includes:
+- global React error boundary (prevents full white-screen collapse)
+- protected-route bootstrap loader and retryable error fallback
+- deterministic auth bootstrap and session-expiry handling
+- dashboard section retry states and development-stage logging
+
+If you suspect stale Vite HMR cache, run:
+
+```powershell
+npm run dev:full:clean
 ```
 

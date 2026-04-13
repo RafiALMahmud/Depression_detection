@@ -9,6 +9,8 @@ interface TopbarProps {
 }
 
 export const Topbar = ({ title, subtitle, user, onToggleSidebar, onLogout }: TopbarProps) => {
+  const userName = user?.full_name?.trim() || 'MindWell Admin';
+
   return (
     <header className="mw-admin-topbar">
       <div className="mw-admin-topbar-row">
@@ -28,7 +30,7 @@ export const Topbar = ({ title, subtitle, user, onToggleSidebar, onLogout }: Top
         </div>
 
         <div className="mw-admin-user-meta">
-          <div className="mw-admin-user-pill mw-visible-md">{user.full_name}</div>
+          <div className="mw-admin-user-pill mw-visible-md">{userName}</div>
           <button type="button" onClick={onLogout} className="mw-btn-primary">
             Logout
           </button>

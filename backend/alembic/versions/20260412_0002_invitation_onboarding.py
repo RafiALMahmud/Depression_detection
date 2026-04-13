@@ -7,6 +7,7 @@ Create Date: 2026-04-12 06:15:00
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
@@ -16,7 +17,14 @@ branch_labels = None
 depends_on = None
 
 
-invitation_status = sa.Enum("pending", "used", "expired", "cancelled", name="invitation_status")
+invitation_status = postgresql.ENUM(
+    "pending",
+    "used",
+    "expired",
+    "cancelled",
+    name="invitation_status",
+    create_type=False,
+)
 
 
 def upgrade() -> None:
@@ -41,7 +49,7 @@ def upgrade() -> None:
         sa.Column("email", sa.String(length=255), nullable=False),
         sa.Column(
             "role",
-            sa.Enum(
+            postgresql.ENUM(
                 "super_admin",
                 "system_admin",
                 "company_head",

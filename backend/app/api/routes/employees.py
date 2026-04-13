@@ -13,7 +13,16 @@ from app.models.user import User
 from app.schemas.employee import EmployeeCreate, EmployeeListResponse, EmployeeRead, EmployeeUpdate
 from app.schemas.user import UserRead
 from app.services.audit import log_audit
-from app.services.hierarchy import get_company_or_404, get_department_or_404, validate_department_belongs_to_company
+from app.services.hierarchy import (
+    ensure_company_access_for_company_head,
+    ensure_company_access_for_department_manager,
+    ensure_department_access_for_department_manager,
+    get_company_head_profile_for_user_or_403,
+    get_company_or_404,
+    get_department_manager_profile_for_user_or_403,
+    get_department_or_404,
+    validate_department_belongs_to_company,
+)
 from app.services.invitations import (
     create_and_send_invitation,
     expire_due_invitations,
@@ -66,9 +75,19 @@ def list_employees(
     company_id: int | None = Query(default=None, ge=1),
     department_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD, UserRole.DEPARTMENT_MANAGER)
+    ),
 ) -> EmployeeListResponse:
     expire_due_invitations(db)
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        company_id = company_head_profile.company_id
+    elif current_user.role == UserRole.DEPARTMENT_MANAGER:
+        department_manager_profile = get_department_manager_profile_for_user_or_403(db, current_user)
+        company_id = department_manager_profile.company_id
+        department_id = department_manager_profile.department_id
+
     query = select(Employee).join(Employee.user).options(selectinload(Employee.user).selectinload(User.invitations))
     if company_id:
         query = query.where(Employee.company_id == company_id)
@@ -89,12 +108,22 @@ def list_employees(
 def create_employee(
     payload: EmployeeCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD, UserRole.DEPARTMENT_MANAGER)
+    ),
 ) -> EmployeeRead:
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_company_head(company_head_profile, payload.company_id)
+    elif current_user.role == UserRole.DEPARTMENT_MANAGER:
+        department_manager_profile = get_department_manager_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_department_manager(department_manager_profile, payload.company_id)
+        ensure_department_access_for_department_manager(department_manager_profile, payload.department_id)
+
     company = get_company_or_404(db, payload.company_id)
     department = get_department_or_404(db, payload.department_id)
     validate_department_belongs_to_company(department, payload.company_id)
-    employee_code = _generate_employee_code(db)
+    employee_code = payload.employee_code or _generate_employee_code(db)
 
     user = create_user(
         db,
@@ -154,10 +183,20 @@ def create_employee(
 def get_employee(
     employee_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD, UserRole.DEPARTMENT_MANAGER)
+    ),
 ) -> EmployeeRead:
     expire_due_invitations(db)
     employee = _get_employee_or_404(db, employee_id)
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_company_head(company_head_profile, employee.company_id)
+    elif current_user.role == UserRole.DEPARTMENT_MANAGER:
+        department_manager_profile = get_department_manager_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_department_manager(department_manager_profile, employee.company_id)
+        ensure_department_access_for_department_manager(department_manager_profile, employee.department_id)
+
     db.commit()
     return _serialize_employee(employee)
 
@@ -167,9 +206,21 @@ def update_employee(
     employee_id: int,
     payload: EmployeeUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD, UserRole.DEPARTMENT_MANAGER)
+    ),
 ) -> EmployeeRead:
     employee = _get_employee_or_404(db, employee_id)
+    company_head_profile = None
+    department_manager_profile = None
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_company_head(company_head_profile, employee.company_id)
+    elif current_user.role == UserRole.DEPARTMENT_MANAGER:
+        department_manager_profile = get_department_manager_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_department_manager(department_manager_profile, employee.company_id)
+        ensure_department_access_for_department_manager(department_manager_profile, employee.department_id)
+
     update_user(
         db,
         user=employee.user,
@@ -180,14 +231,31 @@ def update_employee(
     sync_pending_invitation_email(employee.user)
 
     next_company_id = payload.company_id if payload.company_id is not None else employee.company_id
+    if company_head_profile:
+        next_company_id = company_head_profile.company_id
+    if department_manager_profile:
+        next_company_id = department_manager_profile.company_id
+
     if payload.company_id is not None:
+        if company_head_profile:
+            ensure_company_access_for_company_head(company_head_profile, payload.company_id)
+        if department_manager_profile:
+            ensure_company_access_for_department_manager(department_manager_profile, payload.company_id)
         get_company_or_404(db, payload.company_id)
+
     next_department_id = payload.department_id if payload.department_id is not None else employee.department_id
+    if department_manager_profile:
+        next_department_id = department_manager_profile.department_id
+
     department = get_department_or_404(db, next_department_id)
     validate_department_belongs_to_company(department, next_company_id)
+    if department_manager_profile:
+        ensure_department_access_for_department_manager(department_manager_profile, next_department_id)
 
     if payload.job_title is not None:
         employee.job_title = payload.job_title
+    if payload.employee_code is not None:
+        employee.employee_code = payload.employee_code
 
     employee.company_id = next_company_id
     employee.department_id = next_department_id
@@ -215,9 +283,19 @@ def update_employee(
 def delete_employee(
     employee_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD, UserRole.DEPARTMENT_MANAGER)
+    ),
 ) -> None:
     employee = _get_employee_or_404(db, employee_id)
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_company_head(company_head_profile, employee.company_id)
+    elif current_user.role == UserRole.DEPARTMENT_MANAGER:
+        department_manager_profile = get_department_manager_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_department_manager(department_manager_profile, employee.company_id)
+        ensure_department_access_for_department_manager(department_manager_profile, employee.department_id)
+
     user = employee.user
     db.delete(employee)
     if user:

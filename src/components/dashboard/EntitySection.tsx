@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { ListQuery } from '../../api/services';
@@ -9,6 +9,14 @@ import { ModalForm } from './ModalForm';
 import type { FilterConfig, FormFieldConfig, RowAction, TableColumn } from './types';
 
 type FormValues = Record<string, string | boolean>;
+
+const getRequestErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const response = (error as { response?: { data?: { detail?: string } } }).response;
+    if (response?.data?.detail) return response.data.detail;
+  }
+  return fallback;
+};
 
 interface EntitySectionProps<T> {
   title: string;
@@ -72,6 +80,8 @@ export const EntitySection = <T,>({
   const [items, setItems] = useState<T[]>([]);
   const [meta, setMeta] = useState({ page: 1, page_size: defaultPageSize, total: 0, total_pages: 1 });
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadRunRef = useRef(0);
 
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -97,24 +107,40 @@ export const EntitySection = <T,>({
   );
 
   const loadItems = useCallback(async () => {
+    const runId = ++loadRunRef.current;
     setLoading(true);
+    setLoadError(null);
     try {
-      const query: ListQuery = { page, pageSize, search };
+      const query: ListQuery & Record<string, string | number> = { page, pageSize, search };
       Object.entries(filterState).forEach(([key, value]) => {
         if (!value) return;
-        const parsed = Number(value);
-        if (Number.isNaN(parsed)) return;
-        if (key === 'companyId') query.companyId = parsed;
-        if (key === 'departmentId') query.departmentId = parsed;
+        if (key === 'companyId' || key === 'departmentId') {
+          const parsed = Number(value);
+          if (Number.isNaN(parsed)) return;
+          if (key === 'companyId') query.companyId = parsed;
+          if (key === 'departmentId') query.departmentId = parsed;
+          return;
+        }
+        query[key] = value;
       });
       const response = await fetchItems(query);
-      setItems(response.items);
+      if (runId !== loadRunRef.current) {
+        return;
+      }
+      setItems(Array.isArray(response.items) ? response.items.filter((item) => item !== null && item !== undefined) : []);
       setMeta(response.meta);
     } catch (error) {
-      toast.error('Failed to load data');
+      if (runId !== loadRunRef.current) {
+        return;
+      }
+      const message = getRequestErrorMessage(error, 'Failed to load data');
+      setLoadError(message);
+      toast.error(message);
       console.error(error);
     } finally {
-      setLoading(false);
+      if (runId === loadRunRef.current) {
+        setLoading(false);
+      }
     }
   }, [page, pageSize, search, filterState, fetchItems, reloadKey]);
 
@@ -296,41 +322,61 @@ export const EntitySection = <T,>({
         </div>
       </div>
 
-      <DataTable
-        columns={columns}
-        items={items}
-        getRowId={getItemId}
-        onEdit={enableEdit ? openEdit : undefined}
-        onDelete={enableDelete ? setItemToDelete : undefined}
-        rowActions={rowActions}
-        loading={loading}
-      />
-
-      <div className="mw-entity-pagination">
-        <span className="mw-pagination-meta">
-          Total: {meta.total} | Page {meta.page} of {meta.total_pages}
-        </span>
-        <div className="mw-pagination-actions">
+      {loadError ? (
+        <div className="mw-card mw-empty-state">
+          <h3>Section data unavailable</h3>
+          <p>{loadError}</p>
           <button
             type="button"
-            className="mw-btn-ghost"
-            disabled={page <= 1 || loading}
-            onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+            className="mw-btn-primary mt-4"
+            onClick={() => {
+              void loadItems();
+            }}
           >
-            Previous
-          </button>
-          <button
-            type="button"
-            className="mw-btn-ghost"
-            disabled={page >= meta.total_pages || loading}
-            onClick={() => setPage((prev) => prev + 1)}
-          >
-            Next
+            Retry section load
           </button>
         </div>
-      </div>
+      ) : null}
 
-      {meta.total === 0 && !loading ? (
+      {!loadError ? (
+        <DataTable
+          columns={columns}
+          items={items}
+          getRowId={getItemId}
+          onEdit={enableEdit ? openEdit : undefined}
+          onDelete={enableDelete ? setItemToDelete : undefined}
+          rowActions={rowActions}
+          loading={loading}
+        />
+      ) : null}
+
+      {!loadError ? (
+        <div className="mw-entity-pagination">
+          <span className="mw-pagination-meta">
+            Total: {meta.total} | Page {meta.page} of {meta.total_pages}
+          </span>
+          <div className="mw-pagination-actions">
+            <button
+              type="button"
+              className="mw-btn-ghost"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className="mw-btn-ghost"
+              disabled={page >= meta.total_pages || loading}
+              onClick={() => setPage((prev) => prev + 1)}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {meta.total === 0 && !loading && !loadError ? (
         <div className="mw-card mw-empty-state">
           <h3>No records yet</h3>
           <p>

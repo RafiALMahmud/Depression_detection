@@ -16,7 +16,13 @@ from app.schemas.department_manager import (
 )
 from app.schemas.user import UserRead
 from app.services.audit import log_audit
-from app.services.hierarchy import get_company_or_404, get_department_or_404, validate_department_belongs_to_company
+from app.services.hierarchy import (
+    ensure_company_access_for_company_head,
+    get_company_head_profile_for_user_or_403,
+    get_company_or_404,
+    get_department_or_404,
+    validate_department_belongs_to_company,
+)
 from app.services.invitations import (
     create_and_send_invitation,
     expire_due_invitations,
@@ -60,9 +66,13 @@ def list_department_managers(
     company_id: int | None = Query(default=None, ge=1),
     department_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD)),
 ) -> DepartmentManagerListResponse:
     expire_due_invitations(db)
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        company_id = company_head_profile.company_id
+
     query = (
         select(DepartmentManager)
         .join(DepartmentManager.user)
@@ -85,8 +95,12 @@ def list_department_managers(
 def create_department_manager(
     payload: DepartmentManagerCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD)),
 ) -> DepartmentManagerRead:
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_company_head(company_head_profile, payload.company_id)
+
     company = get_company_or_404(db, payload.company_id)
     department = get_department_or_404(db, payload.department_id)
     validate_department_belongs_to_company(department, payload.company_id)
@@ -150,10 +164,13 @@ def create_department_manager(
 def get_department_manager(
     profile_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD)),
 ) -> DepartmentManagerRead:
     expire_due_invitations(db)
     profile = _get_manager_or_404(db, profile_id)
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_company_head(company_head_profile, profile.company_id)
     db.commit()
     return _serialize_department_manager(profile)
 
@@ -163,9 +180,14 @@ def update_department_manager(
     profile_id: int,
     payload: DepartmentManagerUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD)),
 ) -> DepartmentManagerRead:
     profile = _get_manager_or_404(db, profile_id)
+    company_head_profile = None
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_company_head(company_head_profile, profile.company_id)
+
     update_user(
         db,
         user=profile.user,
@@ -176,7 +198,11 @@ def update_department_manager(
     sync_pending_invitation_email(profile.user)
 
     next_company_id = payload.company_id if payload.company_id is not None else profile.company_id
+    if company_head_profile:
+        next_company_id = company_head_profile.company_id
     if payload.company_id is not None:
+        if company_head_profile:
+            ensure_company_access_for_company_head(company_head_profile, payload.company_id)
         get_company_or_404(db, payload.company_id)
 
     next_department_id = payload.department_id if payload.department_id is not None else profile.department_id
@@ -217,9 +243,13 @@ def update_department_manager(
 def delete_department_manager(
     profile_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD)),
 ) -> None:
     profile = _get_manager_or_404(db, profile_id)
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_company_head(company_head_profile, profile.company_id)
+
     user = profile.user
     db.delete(profile)
     if user:

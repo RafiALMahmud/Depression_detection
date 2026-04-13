@@ -16,6 +16,8 @@ from app.models.user import User
 from app.schemas.invitation import InvitationSnapshot
 from app.services.email import build_invitation_email_html, role_label, send_email
 
+INVITATION_EXPIRY_HOURS = 1
+
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
@@ -49,12 +51,39 @@ def generate_unique_code(db: Session) -> tuple[str, str]:
 
 
 def expire_due_invitations(db: Session) -> None:
+    purge_unaccepted_expired_invitations(db)
+
+
+def purge_unaccepted_expired_invitations(db: Session, email: str | None = None) -> int:
+    """
+    Remove stale invitation accounts that were never accepted before expiry.
+    This deletes the invited user record (and cascades related invitation/profile rows),
+    freeing the email for a fresh invite.
+    """
     current_time = now_utc()
-    pending_invitations = db.scalars(select(Invitation).where(Invitation.status == InvitationStatus.PENDING)).all()
-    for invitation in pending_invitations:
-        if invitation.expires_at and invitation.expires_at <= current_time:
-            invitation.status = InvitationStatus.EXPIRED
+    query = select(Invitation).where(
+        Invitation.status == InvitationStatus.PENDING,
+        Invitation.expires_at.is_not(None),
+        Invitation.expires_at <= current_time,
+    )
+    if email:
+        query = query.where(Invitation.email == email.strip().lower())
+
+    stale_pending_invitations = db.scalars(query.order_by(Invitation.created_at.asc())).all()
+    purged_users: set[int] = set()
+
+    for invitation in stale_pending_invitations:
+        user = invitation.user
+        if user and not user.is_active and not user.password_hash:
+            if user.id not in purged_users:
+                purged_users.add(user.id)
+                db.delete(user)
+            continue
+
+        invitation.status = InvitationStatus.EXPIRED
+
     db.flush()
+    return len(purged_users)
 
 
 def _latest_invitation_for_user(user: User) -> Invitation | None:
@@ -100,7 +129,7 @@ def create_and_send_invitation(
         pending_invitation.status = InvitationStatus.CANCELLED
 
     invitation_code, invitation_code_hash = generate_unique_code(db)
-    expires_at = current_time + timedelta(days=settings.invitation_expire_days)
+    expires_at = current_time + timedelta(hours=INVITATION_EXPIRY_HOURS)
     invitation = Invitation(
         user_id=user.id,
         email=user.email,

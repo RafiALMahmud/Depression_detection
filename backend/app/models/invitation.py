@@ -20,14 +20,26 @@ class Invitation(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    role: Mapped[UserRole] = mapped_column(Enum(UserRole, name="user_role"), nullable=False, index=True)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(
+            UserRole,
+            name="user_role",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        index=True,
+    )
     company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id", ondelete="SET NULL"), nullable=True, index=True)
     department_id: Mapped[int | None] = mapped_column(
         ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True
     )
     invitation_code_hash: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     status: Mapped[InvitationStatus] = mapped_column(
-        Enum(InvitationStatus, name="invitation_status"),
+        Enum(
+            InvitationStatus,
+            name="invitation_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
         default=InvitationStatus.PENDING,
         index=True,
@@ -41,4 +53,3 @@ class Invitation(Base, TimestampMixin):
     created_by_user: Mapped["User"] = relationship(back_populates="created_invitations", foreign_keys=[created_by_user_id])
     company: Mapped["Company | None"] = relationship(back_populates="invitations")
     department: Mapped["Department | None"] = relationship(back_populates="invitations")
-

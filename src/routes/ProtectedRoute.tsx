@@ -1,6 +1,9 @@
+import { useEffect } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
+import { BrandedFullPageError } from '../components/feedback/BrandedFullPageError';
+import { BrandedFullPageLoader } from '../components/feedback/BrandedFullPageLoader';
 import type { UserRole } from '../types/domain';
 import { getDashboardPathByRole } from '../utils/roles';
 
@@ -9,14 +12,40 @@ interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute = ({ allowedRoles }: ProtectedRouteProps) => {
-  const { user, isInitializing } = useAuth();
+  const { user, isInitializing, initializationError, retryInitialization } = useAuth();
   const location = useLocation();
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    console.info('[MindWell][RouteGuard]', {
+      path: location.pathname,
+      isInitializing,
+      hasUser: Boolean(user),
+      userRole: user?.role ?? null,
+      allowedRoles: allowedRoles ?? null,
+    });
+  }, [location.pathname, isInitializing, user, allowedRoles]);
 
   if (isInitializing) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-cream">
-        <div className="mw-card px-8 py-6 text-sm text-text-muted">Loading your workspace...</div>
-      </div>
+      <BrandedFullPageLoader
+        title="Restoring your secure workspace"
+        description="Checking session and route permissions before opening the dashboard."
+      />
+    );
+  }
+
+  if (initializationError) {
+    return (
+      <BrandedFullPageError
+        title="Session restore failed"
+        message={initializationError}
+        onRetry={() => {
+          void retryInitialization();
+        }}
+        secondaryLabel="Go to Sign In"
+        secondaryTo="/sign-in"
+      />
     );
   }
 
@@ -30,4 +59,3 @@ export const ProtectedRoute = ({ allowedRoles }: ProtectedRouteProps) => {
 
   return <Outlet />;
 };
-

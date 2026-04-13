@@ -123,6 +123,7 @@ export const ModalForm = ({
                   type={field.type === 'email' ? 'email' : field.type === 'password' ? 'password' : 'text'}
                   value={String(value ?? '')}
                   placeholder={field.placeholder}
+                  disabled={field.disabled}
                   onChange={(nextValue) => onChange(field.name, nextValue)}
                 />
               </div>

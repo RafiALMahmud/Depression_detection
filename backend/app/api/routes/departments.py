@@ -10,7 +10,12 @@ from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.department import DepartmentCreate, DepartmentListResponse, DepartmentOption, DepartmentRead, DepartmentUpdate
 from app.services.audit import log_audit
-from app.services.hierarchy import get_company_or_404
+from app.services.hierarchy import (
+    ensure_company_access_for_company_head,
+    get_company_head_profile_for_user_or_403,
+    get_company_or_404,
+    get_department_manager_profile_for_user_or_403,
+)
 from app.services.pagination import paginate
 
 router = APIRouter(prefix="/departments", tags=["Departments"])
@@ -30,11 +35,23 @@ def list_departments(
     search: str | None = Query(default=None),
     company_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD, UserRole.DEPARTMENT_MANAGER)
+    ),
 ) -> DepartmentListResponse:
+    department_manager_profile = None
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        company_id = company_head_profile.company_id
+    elif current_user.role == UserRole.DEPARTMENT_MANAGER:
+        department_manager_profile = get_department_manager_profile_for_user_or_403(db, current_user)
+        company_id = department_manager_profile.company_id
+
     query = select(Department)
     if company_id:
         query = query.where(Department.company_id == company_id)
+    if department_manager_profile:
+        query = query.where(Department.id == department_manager_profile.department_id)
     if search:
         pattern = f"%{search.strip()}%"
         query = query.where(or_(Department.name.ilike(pattern), Department.code.ilike(pattern)))
@@ -47,11 +64,23 @@ def list_departments(
 def list_department_options(
     company_id: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD, UserRole.DEPARTMENT_MANAGER)
+    ),
 ) -> list[DepartmentOption]:
+    department_manager_profile = None
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        company_id = company_head_profile.company_id
+    elif current_user.role == UserRole.DEPARTMENT_MANAGER:
+        department_manager_profile = get_department_manager_profile_for_user_or_403(db, current_user)
+        company_id = department_manager_profile.company_id
+
     query = select(Department)
     if company_id:
         query = query.where(Department.company_id == company_id)
+    if department_manager_profile:
+        query = query.where(Department.id == department_manager_profile.department_id)
     departments = db.scalars(query.order_by(Department.name.asc())).all()
     return [DepartmentOption.model_validate(department) for department in departments]
 
@@ -100,9 +129,21 @@ def create_department(
 def get_department(
     department_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD, UserRole.DEPARTMENT_MANAGER)
+    ),
 ) -> DepartmentRead:
-    return DepartmentRead.model_validate(_get_department_or_404(db, department_id))
+    department = _get_department_or_404(db, department_id)
+
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_company_head(company_head_profile, department.company_id)
+    elif current_user.role == UserRole.DEPARTMENT_MANAGER:
+        department_manager_profile = get_department_manager_profile_for_user_or_403(db, current_user)
+        if department.id != department_manager_profile.department_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied outside your department scope")
+
+    return DepartmentRead.model_validate(department)
 
 
 @router.put("/{department_id}", response_model=DepartmentRead)

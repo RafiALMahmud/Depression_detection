@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.enums import InvitationStatus, UserRole
-from app.schemas.common import EMAIL_PATTERN, ORMBase
+from app.schemas.common import EMAIL_PATTERN, ORMBase, PaginationMeta
 
 
 class InvitationSnapshot(ORMBase):
@@ -80,3 +80,23 @@ class InvitationActionResponse(BaseModel):
     message: str
     invitation: InvitationSnapshot
 
+
+class InvitationListItem(ORMBase):
+    id: int
+    full_name: str
+    email: str
+    role: UserRole
+    company_id: int | None = None
+    company_name: str | None = None
+    department_id: int | None = None
+    department_name: str | None = None
+    status: InvitationStatus
+    sent_at: datetime | None
+    expires_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class InvitationListResponse(BaseModel):
+    items: list[InvitationListItem]
+    meta: PaginationMeta

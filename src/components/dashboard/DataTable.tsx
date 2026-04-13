@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import type { TableColumn } from './types';
 import type { RowAction } from './types';
 
@@ -23,6 +25,45 @@ export const DataTable = <T,>({
   emptyMessage = 'No records found.',
 }: DataTableProps<T>) => {
   const hasActions = Boolean(onEdit || onDelete || rowActions.length);
+
+  const safeGetRowId = (item: T, index: number): number | string => {
+    try {
+      const id = getRowId(item);
+      if (id === null || id === undefined || id === '') {
+        return `row-${index}`;
+      }
+      return id;
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.error('[MindWell][DataTable] Failed to resolve row id', error, item);
+      }
+      return `row-${index}`;
+    }
+  };
+
+  const safeRenderCell = (renderer: (item: T) => ReactNode, item: T, columnKey: string): ReactNode => {
+    try {
+      return renderer(item);
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.error('[MindWell][DataTable] Cell renderer failed', { columnKey, item, error });
+      }
+      return <span className="mw-helper-text">Unavailable</span>;
+    }
+  };
+
+  const safeResolveHidden = (predicate: ((item: T) => boolean) | undefined, item: T): boolean => {
+    if (!predicate) return false;
+    try {
+      return predicate(item);
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.error('[MindWell][DataTable] Row action visibility check failed', { item, error });
+      }
+      return true;
+    }
+  };
+
   return (
     <div className="mw-data-table-shell">
       <div className="mw-data-table-scroll">
@@ -51,18 +92,20 @@ export const DataTable = <T,>({
                 </td>
               </tr>
             ) : (
-              items.map((item) => (
-                <tr key={getRowId(item)} className="mw-data-row">
+              items.map((item, index) => {
+                const rowId = safeGetRowId(item, index);
+                return (
+                <tr key={rowId} className="mw-data-row">
                   {columns.map((column) => (
-                    <td key={`${getRowId(item)}-${column.key}`} className={column.className}>
-                      {column.render(item)}
+                    <td key={`${rowId}-${column.key}`} className={column.className}>
+                      {safeRenderCell(column.render, item, column.key)}
                     </td>
                   ))}
                   {hasActions && (
                     <td>
                       <div className="mw-table-actions">
                         {rowActions
-                          .filter((action) => !action.hidden || !action.hidden(item))
+                          .filter((action) => !safeResolveHidden(action.hidden, item))
                           .map((action) => {
                             const styleClass =
                               action.variant === 'danger'
@@ -72,7 +115,7 @@ export const DataTable = <T,>({
                                   : '';
                             return (
                               <button
-                                key={`${getRowId(item)}-${action.key}`}
+                                key={`${rowId}-${action.key}`}
                                 type="button"
                                 onClick={() => action.onClick(item)}
                                 className={`mw-btn-chip ${styleClass}`.trim()}
@@ -103,7 +146,7 @@ export const DataTable = <T,>({
                     </td>
                   )}
                 </tr>
-              ))
+              )})
             )}
           </tbody>
         </table>

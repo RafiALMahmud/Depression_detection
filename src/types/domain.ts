@@ -135,3 +135,72 @@ export interface SystemAdminSummary {
   total_department_managers: number;
   total_employees: number;
 }
+
+export interface SummaryInvitationPreview {
+  id: number;
+  full_name: string;
+  email: string;
+  role: UserRole;
+  status: InvitationStatus;
+  sent_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface SummaryUserPreview {
+  id: number;
+  full_name: string;
+  email: string;
+  created_at: string;
+}
+
+export interface CompanyHeadSummary {
+  company_id: number;
+  company_name: string;
+  total_departments: number;
+  total_department_managers: number;
+  total_employees: number;
+  active_invitations_count: number;
+  completed_onboardings_count: number;
+  department_breakdown: CompanyDepartmentBreakdown[];
+  recent_invitations: SummaryInvitationPreview[];
+  recent_employees: SummaryUserPreview[];
+}
+
+export interface CompanyDepartmentBreakdown {
+  department_id: number;
+  department_name: string;
+  department_code: string;
+  department_manager_count: number;
+  employee_count: number;
+}
+
+export interface DepartmentManagerSummary {
+  company_id: number;
+  company_name: string;
+  department_id: number;
+  department_name: string;
+  total_employees: number;
+  active_invitations_count: number;
+  completed_onboardings_count: number;
+  scanned_employees_count_placeholder: number;
+  average_wellness_score_placeholder: number | null;
+  recent_invitations: SummaryInvitationPreview[];
+  recent_employees: SummaryUserPreview[];
+}
+
+export interface InvitationListItem {
+  id: number;
+  full_name: string;
+  email: string;
+  role: UserRole;
+  company_id: number | null;
+  company_name: string | null;
+  department_id: number | null;
+  department_name: string | null;
+  status: InvitationStatus;
+  sent_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

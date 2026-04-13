@@ -7,6 +7,7 @@ Create Date: 2026-04-12 03:30:00
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
@@ -16,7 +17,7 @@ branch_labels = None
 depends_on = None
 
 
-user_role = sa.Enum(
+user_role = postgresql.ENUM(
     "super_admin",
     "system_admin",
     "company_head",

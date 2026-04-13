@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -47,6 +48,11 @@ import { getDashboardPathByRole } from '../utils/roles';
 type DashboardMode = 'super' | 'system';
 type FormValues = Record<string, string | boolean>;
 type InviteManagedProfile = CompanyHeadProfile | DepartmentManagerProfile | EmployeeProfile;
+type UserLike = {
+  full_name?: string;
+  email?: string;
+  is_active?: boolean;
+} | null | undefined;
 
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const PRIMARY_SUPER_ADMIN_EMAIL = 'rafi.almahmud.007@gmail.com';
@@ -65,7 +71,7 @@ const renderInvitationBadge = (item: InviteManagedProfile): ReactNode => {
     <span className={`mw-badge ${classes}`}>{label}</span>
   );
 
-  if (item.user.is_active) return badge('Active', 'mw-badge-success');
+  if (Boolean(item.user?.is_active)) return badge('Active', 'mw-badge-success');
   const status = item.invitation?.status;
   if (!status || status === 'pending') return badge('Pending', 'mw-badge-warning');
   if (status === 'used') return badge('Used', 'mw-badge-info');
@@ -73,6 +79,10 @@ const renderInvitationBadge = (item: InviteManagedProfile): ReactNode => {
   if (status === 'cancelled') return badge('Cancelled', 'mw-badge-muted');
   return badge(status, 'mw-badge-muted');
 };
+
+const getUserName = (user: UserLike): string => user?.full_name?.trim() || 'Unknown user';
+const getUserEmail = (user: UserLike): string => user?.email?.trim() || '-';
+const isUserActive = (user: UserLike): boolean => Boolean(user?.is_active);
 
 const validateSystemAdminForm = (values: FormValues, mode: 'create' | 'edit'): Record<string, string> => {
   const errors: Record<string, string> = {};
@@ -99,6 +109,23 @@ const validateInvitedForm = (values: FormValues, _mode: 'create' | 'edit'): Reco
   return errors;
 };
 
+const getApiErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const response = (error as { response?: { data?: { detail?: string }; status?: number } }).response;
+    if (response?.data?.detail) return response.data.detail;
+    if (response?.status === 401 || response?.status === 403) return 'Your session no longer has access.';
+  }
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: string }).code === 'ERR_NETWORK'
+  ) {
+    return 'Cannot reach MindWell API. Check backend connection and retry.';
+  }
+  return fallback;
+};
+
 interface AdminDashboardPageProps {
   mode: DashboardMode;
 }
@@ -111,9 +138,14 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
   const [activeSectionId, setActiveSectionId] = useState<string>('overview');
   const [summary, setSummary] = useState<SuperAdminSummary | SystemAdminSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState<boolean>(true);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const [companyOptions, setCompanyOptions] = useState<CompanyOption[]>([]);
   const [departmentOptions, setDepartmentOptions] = useState<DepartmentOption[]>([]);
+  const [lookupLoading, setLookupLoading] = useState<boolean>(true);
+  const [lookupError, setLookupError] = useState<string | null>(null);
   const [sectionReloadKey, setSectionReloadKey] = useState(0);
+  const summaryRunRef = useRef(0);
+  const lookupRunRef = useRef(0);
 
   const allowed = useMemo(() => {
     if (!user) return false;
@@ -133,26 +165,68 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
   }, [user, isSuperMode, navigate]);
 
   const loadSummary = useCallback(async () => {
+    const runId = ++summaryRunRef.current;
     setSummaryLoading(true);
+    setSummaryError(null);
+    if (import.meta.env.DEV) {
+      console.info('[MindWell][Dashboard] summary:load:start', { mode });
+    }
     try {
       const response = isSuperMode ? await dashboardApi.superAdminSummary() : await dashboardApi.systemAdminSummary();
+      if (runId !== summaryRunRef.current) {
+        return;
+      }
       setSummary(response);
+      if (import.meta.env.DEV) {
+        console.info('[MindWell][Dashboard] summary:load:success', { mode });
+      }
     } catch (error) {
-      toast.error('Failed to load dashboard summary');
+      if (runId !== summaryRunRef.current) {
+        return;
+      }
+      const message = getApiErrorMessage(error, 'Failed to load dashboard summary');
+      setSummaryError(message);
+      toast.error(message);
       console.error(error);
     } finally {
-      setSummaryLoading(false);
+      if (runId === summaryRunRef.current) {
+        setSummaryLoading(false);
+      }
     }
-  }, [isSuperMode]);
+  }, [isSuperMode, mode]);
 
   const loadLookupOptions = useCallback(async () => {
+    const runId = ++lookupRunRef.current;
+    setLookupLoading(true);
+    setLookupError(null);
+    if (import.meta.env.DEV) {
+      console.info('[MindWell][Dashboard] lookup:load:start');
+    }
     try {
       const [companies, departments] = await Promise.all([optionsApi.companies(), optionsApi.departments()]);
+      if (runId !== lookupRunRef.current) {
+        return;
+      }
       setCompanyOptions(companies);
       setDepartmentOptions(departments);
+      if (import.meta.env.DEV) {
+        console.info('[MindWell][Dashboard] lookup:load:success', {
+          companies: companies.length,
+          departments: departments.length,
+        });
+      }
     } catch (error) {
-      toast.error('Failed to load form options');
+      if (runId !== lookupRunRef.current) {
+        return;
+      }
+      const message = getApiErrorMessage(error, 'Failed to load form options');
+      setLookupError(message);
+      toast.error(message);
       console.error(error);
+    } finally {
+      if (runId === lookupRunRef.current) {
+        setLookupLoading(false);
+      }
     }
   }, []);
 
@@ -160,6 +234,19 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
     if (!allowed) return;
     void Promise.all([loadSummary(), loadLookupOptions()]);
   }, [allowed, loadSummary, loadLookupOptions]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    console.info('[MindWell][Dashboard] state', {
+      mode,
+      activeSectionId,
+      allowed,
+      summaryLoading,
+      hasSummaryError: Boolean(summaryError),
+      lookupLoading,
+      hasLookupError: Boolean(lookupError),
+    });
+  }, [mode, activeSectionId, allowed, summaryLoading, summaryError, lookupLoading, lookupError]);
 
   const companyNameMap = useMemo(() => new Map(companyOptions.map((item) => [item.id, item.name])), [companyOptions]);
   const departmentNameMap = useMemo(() => new Map(departmentOptions.map((item) => [item.id, item.name])), [departmentOptions]);
@@ -235,7 +322,7 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
           if (!invitationId) return;
           void handleInvitationResend(invitationId);
         },
-        hidden: (item) => !item.invitation || item.user.is_active || item.invitation.status === 'used',
+        hidden: (item) => !item.invitation || isUserActive(item.user) || item.invitation.status === 'used',
       },
       {
         key: 'cancel',
@@ -246,14 +333,11 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
           if (!invitationId) return;
           void handleInvitationCancel(invitationId);
         },
-        hidden: (item) => !item.invitation || item.user.is_active || item.invitation.status !== 'pending',
+        hidden: (item) => !item.invitation || isUserActive(item.user) || item.invitation.status !== 'pending',
       },
     ],
     [handleInvitationCancel, handleInvitationResend],
   );
-
-  if (!user) return <Navigate to="/sign-in" replace />;
-  if (!allowed) return <Navigate to={getDashboardPathByRole(user.role)} replace />;
 
   const sections = isSuperMode
     ? [
@@ -281,9 +365,46 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
     }
   }, [activeSectionId, sections]);
 
+  if (!user) return <Navigate to="/sign-in" replace />;
+  if (!allowed) return <Navigate to={getDashboardPathByRole(user.role)} replace />;
+
   const renderOverview = () => {
-    if (summaryLoading || !summary) {
+    if (summaryLoading) {
       return <div className="mw-card mw-loading-card">Loading overview...</div>;
+    }
+    if (summaryError) {
+      return (
+        <div className="mw-card mw-empty-state">
+          <h3>Overview unavailable</h3>
+          <p>{summaryError}</p>
+          <button
+            type="button"
+            className="mw-btn-primary mt-4"
+            onClick={() => {
+              void loadSummary();
+            }}
+          >
+            Retry overview load
+          </button>
+        </div>
+      );
+    }
+    if (!summary) {
+      return (
+        <div className="mw-card mw-empty-state">
+          <h3>Overview not ready</h3>
+          <p>Dashboard summary data was empty. Please retry.</p>
+          <button
+            type="button"
+            className="mw-btn-primary mt-4"
+            onClick={() => {
+              void loadSummary();
+            }}
+          >
+            Retry overview load
+          </button>
+        </div>
+      );
     }
 
     const cards = isSuperMode
@@ -313,9 +434,9 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
   };
 
   const systemAdminColumns: TableColumn<SystemAdminProfile>[] = [
-    { key: 'full_name', title: 'Name', render: (item) => item.user.full_name },
-    { key: 'email', title: 'Email', render: (item) => item.user.email },
-    { key: 'status', title: 'Status', render: (item) => (item.user.is_active ? 'Active' : 'Inactive') },
+    { key: 'full_name', title: 'Name', render: (item) => getUserName(item.user) },
+    { key: 'email', title: 'Email', render: (item) => getUserEmail(item.user) },
+    { key: 'status', title: 'Status', render: (item) => (isUserActive(item.user) ? 'Active' : 'Inactive') },
     { key: 'created_at', title: 'Created', render: (item) => new Date(item.created_at).toLocaleDateString() },
   ];
 
@@ -348,8 +469,8 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
   ];
 
   const companyHeadColumns: TableColumn<CompanyHeadProfile>[] = [
-    { key: 'full_name', title: 'Name', render: (item) => item.user.full_name },
-    { key: 'email', title: 'Email', render: (item) => item.user.email },
+    { key: 'full_name', title: 'Name', render: (item) => getUserName(item.user) },
+    { key: 'email', title: 'Email', render: (item) => getUserEmail(item.user) },
     { key: 'company', title: 'Company', render: (item) => companyNameMap.get(item.company_id) ?? `#${item.company_id}` },
     { key: 'onboarding', title: 'Onboarding', render: (item) => renderInvitationBadge(item) },
   ];
@@ -377,16 +498,16 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
   ];
 
   const managerColumns: TableColumn<DepartmentManagerProfile>[] = [
-    { key: 'name', title: 'Name', render: (item) => item.user.full_name },
-    { key: 'email', title: 'Email', render: (item) => item.user.email },
+    { key: 'name', title: 'Name', render: (item) => getUserName(item.user) },
+    { key: 'email', title: 'Email', render: (item) => getUserEmail(item.user) },
     { key: 'company', title: 'Company', render: (item) => companyNameMap.get(item.company_id) ?? `#${item.company_id}` },
     { key: 'department', title: 'Department', render: (item) => departmentNameMap.get(item.department_id) ?? `#${item.department_id}` },
     { key: 'onboarding', title: 'Onboarding', render: (item) => renderInvitationBadge(item) },
   ];
 
   const employeeColumns: TableColumn<EmployeeProfile>[] = [
-    { key: 'name', title: 'Name', render: (item) => item.user.full_name },
-    { key: 'email', title: 'Email', render: (item) => item.user.email },
+    { key: 'name', title: 'Name', render: (item) => getUserName(item.user) },
+    { key: 'email', title: 'Email', render: (item) => getUserEmail(item.user) },
     { key: 'company', title: 'Company', render: (item) => companyNameMap.get(item.company_id) ?? `#${item.company_id}` },
     { key: 'department', title: 'Department', render: (item) => departmentNameMap.get(item.department_id) ?? `#${item.department_id}` },
     { key: 'code', title: 'Employee Code', render: (item) => item.employee_code || '-' },
@@ -394,9 +515,35 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
     { key: 'onboarding', title: 'Onboarding', render: (item) => renderInvitationBadge(item) },
   ];
 
+  const requiresLookupOptions = ['company-heads', 'departments', 'department-managers', 'employees'].includes(
+    activeSectionId,
+  );
+
   const entityComponent = () => {
     if (activeSectionId === 'overview') {
       return renderOverview();
+    }
+
+    if (requiresLookupOptions && lookupLoading) {
+      return <div className="mw-card mw-loading-card">Loading companies and departments...</div>;
+    }
+
+    if (requiresLookupOptions && lookupError) {
+      return (
+        <div className="mw-card mw-empty-state">
+          <h3>Form options unavailable</h3>
+          <p>{lookupError}</p>
+          <button
+            type="button"
+            className="mw-btn-primary mt-4"
+            onClick={() => {
+              void loadLookupOptions();
+            }}
+          >
+            Retry option load
+          </button>
+        </div>
+      );
     }
 
     if (activeSectionId === 'super-admins' && isSuperMode && isPrimarySuperAdmin) {
@@ -437,12 +584,12 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
           updateItem={(id, payload) => systemAdminApi.update(id, payload as SystemAdminUpdatePayload)}
           deleteItem={(id) => systemAdminApi.remove(id)}
           getItemId={(item) => item.id}
-          getDeleteLabel={(item) => item.user.email}
+          getDeleteLabel={(item) => getUserEmail(item.user)}
           toFormValues={(item) => ({
-            full_name: item?.user.full_name ?? '',
-            email: item?.user.email ?? '',
+            full_name: item?.user?.full_name ?? '',
+            email: item?.user?.email ?? '',
             password: '',
-            is_active: item?.user.is_active ?? true,
+            is_active: item?.user?.is_active ?? true,
           })}
           toCreatePayload={(values) => ({
             full_name: String(values.full_name).trim(),
@@ -524,12 +671,12 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
           updateItem={(id, payload) => companyHeadsApi.update(id, payload as CompanyHeadUpdatePayload)}
           deleteItem={(id) => companyHeadsApi.remove(id)}
           getItemId={(item) => item.id}
-          getDeleteLabel={(item) => item.user.email}
+          getDeleteLabel={(item) => getUserEmail(item.user)}
           toFormValues={(item) => ({
-            full_name: item?.user.full_name ?? '',
-            email: item?.user.email ?? '',
+            full_name: item?.user?.full_name ?? '',
+            email: item?.user?.email ?? '',
             company_id: item ? String(item.company_id) : '',
-            is_active: item?.user.is_active ?? false,
+            is_active: item?.user?.is_active ?? false,
           })}
           toCreatePayload={(values) => ({
             full_name: String(values.full_name).trim(),
@@ -649,13 +796,13 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
           updateItem={(id, payload) => departmentManagersApi.update(id, payload as DepartmentManagerUpdatePayload)}
           deleteItem={(id) => departmentManagersApi.remove(id)}
           getItemId={(item) => item.id}
-          getDeleteLabel={(item) => item.user.email}
+          getDeleteLabel={(item) => getUserEmail(item.user)}
           toFormValues={(item) => ({
-            full_name: item?.user.full_name ?? '',
-            email: item?.user.email ?? '',
+            full_name: item?.user?.full_name ?? '',
+            email: item?.user?.email ?? '',
             company_id: item ? String(item.company_id) : '',
             department_id: item ? String(item.department_id) : '',
-            is_active: item?.user.is_active ?? false,
+            is_active: item?.user?.is_active ?? false,
           })}
           toCreatePayload={(values) => ({
             full_name: String(values.full_name).trim(),
@@ -741,14 +888,14 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
           updateItem={(id, payload) => employeesApi.update(id, payload as EmployeeUpdatePayload)}
           deleteItem={(id) => employeesApi.remove(id)}
           getItemId={(item) => item.id}
-          getDeleteLabel={(item) => item.user.email}
+          getDeleteLabel={(item) => getUserEmail(item.user)}
           toFormValues={(item) => ({
-            full_name: item?.user.full_name ?? '',
-            email: item?.user.email ?? '',
+            full_name: item?.user?.full_name ?? '',
+            email: item?.user?.email ?? '',
             company_id: item ? String(item.company_id) : '',
             department_id: item ? String(item.department_id) : '',
             job_title: item?.job_title ?? '',
-            is_active: item?.user.is_active ?? false,
+            is_active: item?.user?.is_active ?? false,
           })}
           toCreatePayload={(values) => ({
             full_name: String(values.full_name).trim(),

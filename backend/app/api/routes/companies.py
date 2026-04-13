@@ -10,6 +10,12 @@ from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.company import CompanyCreate, CompanyListResponse, CompanyOption, CompanyRead, CompanyUpdate
 from app.services.audit import log_audit
+from app.services.hierarchy import (
+    ensure_company_access_for_company_head,
+    ensure_company_access_for_department_manager,
+    get_company_head_profile_for_user_or_403,
+    get_department_manager_profile_for_user_or_403,
+)
 from app.services.pagination import paginate
 
 router = APIRouter(prefix="/companies", tags=["Companies"])
@@ -28,9 +34,18 @@ def list_companies(
     page_size: int = Query(default=10, ge=1, le=100),
     search: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD, UserRole.DEPARTMENT_MANAGER)
+    ),
 ) -> CompanyListResponse:
     query = select(Company)
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        query = query.where(Company.id == company_head_profile.company_id)
+    elif current_user.role == UserRole.DEPARTMENT_MANAGER:
+        department_manager_profile = get_department_manager_profile_for_user_or_403(db, current_user)
+        query = query.where(Company.id == department_manager_profile.company_id)
+
     if search:
         pattern = f"%{search.strip()}%"
         query = query.where(or_(Company.name.ilike(pattern), Company.code.ilike(pattern)))
@@ -42,9 +57,19 @@ def list_companies(
 @router.get("/options", response_model=list[CompanyOption])
 def list_company_options(
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD, UserRole.DEPARTMENT_MANAGER)
+    ),
 ) -> list[CompanyOption]:
-    companies = db.scalars(select(Company).order_by(Company.name.asc())).all()
+    query = select(Company)
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        query = query.where(Company.id == company_head_profile.company_id)
+    elif current_user.role == UserRole.DEPARTMENT_MANAGER:
+        department_manager_profile = get_department_manager_profile_for_user_or_403(db, current_user)
+        query = query.where(Company.id == department_manager_profile.company_id)
+
+    companies = db.scalars(query.order_by(Company.name.asc())).all()
     return [CompanyOption.model_validate(company) for company in companies]
 
 
@@ -84,9 +109,20 @@ def create_company(
 def get_company(
     company_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.COMPANY_HEAD, UserRole.DEPARTMENT_MANAGER)
+    ),
 ) -> CompanyRead:
-    return CompanyRead.model_validate(_get_company_or_404(db, company_id))
+    company = _get_company_or_404(db, company_id)
+
+    if current_user.role == UserRole.COMPANY_HEAD:
+        company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_company_head(company_head_profile, company.id)
+    elif current_user.role == UserRole.DEPARTMENT_MANAGER:
+        department_manager_profile = get_department_manager_profile_for_user_or_403(db, current_user)
+        ensure_company_access_for_department_manager(department_manager_profile, company.id)
+
+    return CompanyRead.model_validate(company)
 
 
 @router.put("/{company_id}", response_model=CompanyRead)
