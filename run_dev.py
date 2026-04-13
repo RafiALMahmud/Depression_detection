@@ -176,7 +176,7 @@ def stop_process(name: str, process: subprocess.Popen) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run MindWell frontend + backend in development mode.")
     parser.add_argument("--backend-host", default="0.0.0.0")
-    parser.add_argument("--backend-port", type=int, default=8000)
+    parser.add_argument("--backend-port", type=int, default=8010)
     parser.add_argument("--frontend-host", default="localhost")
     parser.add_argument("--frontend-port", type=int, default=5173)
     return parser.parse_args()
@@ -205,7 +205,9 @@ def main() -> int:
     backend_env["PYTHONUNBUFFERED"] = "1"
 
     frontend_env = os.environ.copy()
-    frontend_env.setdefault("VITE_API_BASE_URL", f"http://localhost:{args.backend_port}/api/v1")
+    # Use same-origin API path in dev; Vite proxy forwards to backend.
+    frontend_env.setdefault("VITE_API_BASE_URL", "/api/v1")
+    frontend_env["VITE_DEV_API_TARGET"] = f"http://127.0.0.1:{args.backend_port}"
 
     backend_command = [
         python_exe,

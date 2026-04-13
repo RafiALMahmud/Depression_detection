@@ -27,7 +27,7 @@ const getSignInErrorMessage = (error: unknown): string => {
     'code' in error &&
     (error as { code?: string }).code === 'ERR_NETWORK'
   ) {
-    return 'Cannot reach the API server. Start backend on http://localhost:8000 and try again.';
+    return 'Cannot reach the API server. Start backend and try again.';
   }
 
   return 'Unable to sign in right now. Please try again.';

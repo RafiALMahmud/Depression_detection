@@ -2,7 +2,7 @@ import axios from 'axios';
 
 import { getStoredToken } from '../auth/token';
 
-const baseURL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
+const baseURL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 export const AUTH_SESSION_INVALID_EVENT = 'mindwell:auth-session-invalid';
 const AUTH_ENDPOINT_ALLOWLIST = ['/auth/login', '/auth/logout', '/auth/me'];
 let lastAuthEventAtMs = 0;
