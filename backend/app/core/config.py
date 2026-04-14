@@ -25,10 +25,10 @@ class Settings(BaseSettings):
     auto_seed: bool = True
     seed_send_emails: bool = False
 
-    vision_model_weights_path: str = "backend/app/models/mobilenetv3_rafdb.pth"
-    vision_model_architecture: str = "mobilenet_v3_large"
-    vision_classifier_hidden_dim: int = 512
-    vision_class_labels: str = "angry,disgust,fear,happy,neutral,sad,surprise"
+    vision_model_weights_path: str = "backend/app/models/efficientface_rafdb.pth"
+    vision_model_architecture: str = "efficientface"
+    vision_classifier_hidden_dim: int | None = None
+    vision_class_labels: str = "neutral,happy,sad,surprise,fear,disgust,angry"
     vision_input_size: int = 224
     vision_max_frames_per_request: int = 60
     vision_strict_model_load: bool = True
@@ -66,6 +66,24 @@ class Settings(BaseSettings):
                 return False
             if normalized in {"debug", "dev", "development", "on", "true", "1", "yes"}:
                 return True
+        return value
+
+    @field_validator("vision_classifier_hidden_dim", mode="before")
+    @classmethod
+    def normalize_vision_classifier_hidden_dim(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"", "none", "null"}:
+                return None
+        return value
+
+    @field_validator("vision_classifier_hidden_dim")
+    @classmethod
+    def validate_vision_classifier_hidden_dim(cls, value: int | None) -> int | None:
+        if value is not None and value < 1:
+            raise ValueError("VISION_CLASSIFIER_HIDDEN_DIM must be greater than zero")
         return value
 
     @field_validator("vision_class_labels")
