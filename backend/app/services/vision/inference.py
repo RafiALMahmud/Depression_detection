@@ -29,6 +29,7 @@ class VisionInferenceService:
     def __init__(self) -> None:
         self._architecture = settings.vision_model_architecture
         self._class_labels = settings.vision_class_labels_list
+        self._classifier_hidden_dim = settings.vision_classifier_hidden_dim
         self._input_size = settings.vision_input_size
         self._max_frames_per_request = settings.vision_max_frames_per_request
         self._strict_model_load = settings.vision_strict_model_load
@@ -47,7 +48,7 @@ class VisionInferenceService:
         ready = False
         message = (
             f"Vision weights file was not found at '{self._weights_path}'. "
-            "Place mobilenetv3_pruned.pth there or update VISION_MODEL_WEIGHTS_PATH."
+            "Place the checkpoint there or update VISION_MODEL_WEIGHTS_PATH."
         )
 
         if weights_found:
@@ -123,7 +124,11 @@ class VisionInferenceService:
                 )
 
             try:
-                model = build_classifier_model(self._architecture, len(self._class_labels))
+                model = build_classifier_model(
+                    self._architecture,
+                    len(self._class_labels),
+                    classifier_hidden_dim=self._classifier_hidden_dim,
+                )
             except ValueError as exc:
                 raise VisionModelNotReadyError(str(exc)) from exc
 

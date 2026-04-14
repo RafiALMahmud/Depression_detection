@@ -14,7 +14,7 @@ STATE_DICT_CONTAINER_KEYS = ("state_dict", "model_state_dict", "model", "weights
 STATE_DICT_PREFIXES = ("module.", "_orig_mod.", "model.")
 
 
-def build_classifier_model(architecture: str, num_classes: int) -> nn.Module:
+def build_classifier_model(architecture: str, num_classes: int, *, classifier_hidden_dim: int | None = None) -> nn.Module:
     if num_classes < 1:
         raise ValueError("num_classes must be greater than zero")
 
@@ -24,11 +24,18 @@ def build_classifier_model(architecture: str, num_classes: int) -> nn.Module:
         raise ValueError(f"Unsupported VISION_MODEL_ARCHITECTURE '{architecture}'. Supported values: {supported}")
 
     model = builder(weights=None)
-    if not isinstance(model.classifier[-1], nn.Linear):
+    if not isinstance(model.classifier[0], nn.Linear) or not isinstance(model.classifier[-1], nn.Linear):
         raise ValueError(f"Unexpected classifier head for '{architecture}'")
 
-    in_features = model.classifier[-1].in_features
-    model.classifier[-1] = nn.Linear(in_features, num_classes)
+    output_in_features = model.classifier[-1].in_features
+    if classifier_hidden_dim is not None:
+        if classifier_hidden_dim < 1:
+            raise ValueError("classifier_hidden_dim must be greater than zero")
+        in_features = model.classifier[0].in_features
+        model.classifier[0] = nn.Linear(in_features, classifier_hidden_dim)
+        output_in_features = classifier_hidden_dim
+
+    model.classifier[-1] = nn.Linear(output_in_features, num_classes)
     return model
 
 

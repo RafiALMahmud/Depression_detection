@@ -25,8 +25,9 @@ class Settings(BaseSettings):
     auto_seed: bool = True
     seed_send_emails: bool = False
 
-    vision_model_weights_path: str = "backend/models/mobilenetv3_pruned.pth"
-    vision_model_architecture: str = "mobilenet_v3_small"
+    vision_model_weights_path: str = "backend/app/models/mobilenetv3_rafdb.pth"
+    vision_model_architecture: str = "mobilenet_v3_large"
+    vision_classifier_hidden_dim: int = 512
     vision_class_labels: str = "angry,disgust,fear,happy,neutral,sad,surprise"
     vision_input_size: int = 224
     vision_max_frames_per_request: int = 60
