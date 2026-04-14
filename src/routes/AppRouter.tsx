@@ -9,7 +9,7 @@ import { SuperAdminDashboardPage } from '../pages/SuperAdminDashboardPage';
 import { SystemAdminDashboardPage } from '../pages/SystemAdminDashboardPage';
 import { CompanyHeadDashboardPage } from '../pages/CompanyHeadDashboardPage';
 import { DepartmentManagerDashboardPage } from '../pages/DepartmentManagerDashboardPage';
-import { RolePortalPage } from '../pages/RolePortalPage';
+import { EmployeeDashboardPage } from '../pages/EmployeeDashboardPage';
 import { ProtectedRoute } from './ProtectedRoute';
 
 const RouteDebugObserver = () => {
@@ -55,7 +55,7 @@ export const AppRouter = () => {
         </Route>
 
         <Route element={<ProtectedRoute allowedRoles={['employee']} />}>
-          <Route path="/dashboard/employee" element={<RolePortalPage />} />
+          <Route path="/dashboard/employee" element={<EmployeeDashboardPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

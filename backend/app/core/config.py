@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     auto_seed: bool = True
     seed_send_emails: bool = False
 
+    vision_model_weights_path: str = "backend/models/mobilenetv3_pruned.pth"
+    vision_model_architecture: str = "mobilenet_v3_small"
+    vision_class_labels: str = "angry,disgust,fear,happy,neutral,sad,surprise"
+    vision_input_size: int = 224
+    vision_max_frames_per_request: int = 60
+    vision_strict_model_load: bool = True
+
     mail_mailer: str = "smtp"
     mail_scheme: str | None = None
     mail_host: str = "smtp.gmail.com"
@@ -42,7 +49,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("debug", "serve_frontend", mode="before")
+    @property
+    def vision_class_labels_list(self) -> list[str]:
+        labels = [label.strip() for label in self.vision_class_labels.split(",") if label.strip()]
+        if not labels:
+            raise ValueError("VISION_CLASS_LABELS must contain at least one label")
+        return labels
+
+    @field_validator("debug", "serve_frontend", "vision_strict_model_load", mode="before")
     @classmethod
     def normalize_debug_value(cls, value: object) -> object:
         if isinstance(value, str):
@@ -52,6 +66,14 @@ class Settings(BaseSettings):
             if normalized in {"debug", "dev", "development", "on", "true", "1", "yes"}:
                 return True
         return value
+
+    @field_validator("vision_class_labels")
+    @classmethod
+    def normalize_vision_class_labels(cls, value: str) -> str:
+        labels = [label.strip() for label in value.split(",") if label.strip()]
+        if not labels:
+            raise ValueError("VISION_CLASS_LABELS must contain at least one label")
+        return ",".join(labels)
 
 
 @lru_cache

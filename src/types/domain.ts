@@ -204,3 +204,36 @@ export interface InvitationListItem {
   created_at: string;
   updated_at: string;
 }
+
+export interface MoodScore {
+  label: string;
+  confidence: number;
+}
+
+export interface FrameMoodPrediction {
+  frame_index: number;
+  dominant_label: string;
+  dominant_confidence: number;
+  scores: MoodScore[];
+}
+
+export interface VisionPredictionResult {
+  model_name: string;
+  frame_count: number;
+  dominant_label: string;
+  dominant_confidence: number;
+  averaged_scores: MoodScore[];
+  frames: FrameMoodPrediction[];
+}
+
+export interface VisionModelStatus {
+  ready: boolean;
+  message: string;
+  architecture: string;
+  weights_path: string;
+  weights_found: boolean;
+  input_size: number;
+  max_frames_per_request: number;
+  class_labels: string[];
+  load_error: string | null;
+}

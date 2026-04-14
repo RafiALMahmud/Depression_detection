@@ -11,6 +11,7 @@ from app.api.routes import (
     invitations,
     super_admins,
     system_admins,
+    vision,
 )
 
 api_router = APIRouter()
@@ -24,3 +25,4 @@ api_router.include_router(departments.router)
 api_router.include_router(department_managers.router)
 api_router.include_router(employees.router)
 api_router.include_router(invitations.router)
+api_router.include_router(vision.router)

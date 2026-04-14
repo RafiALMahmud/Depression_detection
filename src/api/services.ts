@@ -22,6 +22,10 @@ import type {
   UserRole,
   InvitationStatus,
   User,
+  MoodScore,
+  FrameMoodPrediction,
+  VisionModelStatus,
+  VisionPredictionResult,
 } from '../types/domain';
 
 export interface ListQuery {
@@ -91,6 +95,101 @@ const normalizeDepartmentManagerSummary = (
   recent_invitations: ensureArray<SummaryInvitationPreview>(payload?.recent_invitations),
   recent_employees: ensureArray<SummaryUserPreview>(payload?.recent_employees),
 });
+
+const expectNonEmptyString = (value: unknown, fieldName: string): string => {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`MindWell received an invalid ${fieldName} from the vision service.`);
+  }
+  return value;
+};
+
+const expectFiniteNumber = (value: unknown, fieldName: string): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`MindWell received an invalid ${fieldName} from the vision service.`);
+  }
+  return parsed;
+};
+
+const expectBoolean = (value: unknown, fieldName: string): boolean => {
+  if (typeof value !== 'boolean') {
+    throw new Error(`MindWell received an invalid ${fieldName} from the vision service.`);
+  }
+  return value;
+};
+
+const expectStringArray = (value: unknown, fieldName: string): string[] => {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item.trim())) {
+    throw new Error(`MindWell received an invalid ${fieldName} from the vision service.`);
+  }
+  return value;
+};
+
+const normalizeMoodScore = (payload: unknown): MoodScore => {
+  const candidate = payload as Partial<MoodScore> | null | undefined;
+  const confidence = expectFiniteNumber(candidate?.confidence, 'vision score confidence');
+  if (confidence < 0 || confidence > 1) {
+    throw new Error('MindWell received an out-of-range confidence score from the vision service.');
+  }
+  return {
+    label: expectNonEmptyString(candidate?.label, 'vision score label'),
+    confidence,
+  };
+};
+
+const normalizeFrameMoodPrediction = (payload: unknown): FrameMoodPrediction => {
+  const candidate = payload as Partial<FrameMoodPrediction> | null | undefined;
+  const dominantConfidence = expectFiniteNumber(candidate?.dominant_confidence, 'frame dominant confidence');
+  if (dominantConfidence < 0 || dominantConfidence > 1) {
+    throw new Error('MindWell received an out-of-range frame confidence from the vision service.');
+  }
+  const scores = ensureArray<unknown>(candidate?.scores).map(normalizeMoodScore);
+  if (!scores.length) {
+    throw new Error('MindWell received a frame prediction without any facial score entries.');
+  }
+  return {
+    frame_index: expectFiniteNumber(candidate?.frame_index, 'frame index'),
+    dominant_label: expectNonEmptyString(candidate?.dominant_label, 'frame dominant label'),
+    dominant_confidence: dominantConfidence,
+    scores,
+  };
+};
+
+const normalizeVisionPrediction = (payload: unknown): VisionPredictionResult => {
+  const candidate = payload as Partial<VisionPredictionResult> | null | undefined;
+  const dominantConfidence = expectFiniteNumber(candidate?.dominant_confidence, 'dominant confidence');
+  if (dominantConfidence < 0 || dominantConfidence > 1) {
+    throw new Error('MindWell received an out-of-range dominant confidence from the vision service.');
+  }
+  const averagedScores = ensureArray<unknown>(candidate?.averaged_scores).map(normalizeMoodScore);
+  const frames = ensureArray<unknown>(candidate?.frames).map(normalizeFrameMoodPrediction);
+  if (!averagedScores.length || !frames.length) {
+    throw new Error('MindWell received an incomplete facial scan response from the vision service.');
+  }
+  return {
+    model_name: expectNonEmptyString(candidate?.model_name, 'model name'),
+    frame_count: expectFiniteNumber(candidate?.frame_count, 'frame count'),
+    dominant_label: expectNonEmptyString(candidate?.dominant_label, 'dominant label'),
+    dominant_confidence: dominantConfidence,
+    averaged_scores: averagedScores,
+    frames,
+  };
+};
+
+const normalizeVisionModelStatus = (payload: unknown): VisionModelStatus => {
+  const candidate = payload as Partial<VisionModelStatus> | null | undefined;
+  return {
+    ready: expectBoolean(candidate?.ready, 'vision readiness flag'),
+    message: expectNonEmptyString(candidate?.message, 'vision readiness message'),
+    architecture: expectNonEmptyString(candidate?.architecture, 'vision architecture'),
+    weights_path: expectNonEmptyString(candidate?.weights_path, 'vision weights path'),
+    weights_found: expectBoolean(candidate?.weights_found, 'vision weights availability'),
+    input_size: expectFiniteNumber(candidate?.input_size, 'vision input size'),
+    max_frames_per_request: expectFiniteNumber(candidate?.max_frames_per_request, 'vision frame limit'),
+    class_labels: expectStringArray(candidate?.class_labels, 'vision class labels'),
+    load_error: candidate?.load_error == null ? null : expectNonEmptyString(candidate.load_error, 'vision load error'),
+  };
+};
 
 const toListParams = (query: ListQuery = {}): Record<string, string | number> => {
   const params: Record<string, string | number> = {
@@ -172,6 +271,23 @@ export const authApi = {
   },
   logout: async (): Promise<void> => {
     await apiClient.post('/auth/logout');
+  },
+};
+
+export const visionApi = {
+  status: async (): Promise<VisionModelStatus> => {
+    const response = await apiClient.get<VisionModelStatus>('/vision/status');
+    return normalizeVisionModelStatus(response.data);
+  },
+  predict: async (frames: Blob[], topK = 3): Promise<VisionPredictionResult> => {
+    const formData = new FormData();
+    frames.forEach((frame, index) => {
+      formData.append('frames', frame, `scan-frame-${index + 1}.jpg`);
+    });
+    const response = await apiClient.post<VisionPredictionResult>('/vision/predict', formData, {
+      params: { top_k: topK },
+    });
+    return normalizeVisionPrediction(response.data);
   },
 };
 
