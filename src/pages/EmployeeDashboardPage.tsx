@@ -100,6 +100,16 @@ interface CameraStartResult {
   message: string | null;
 }
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+
+const isTransientCaptureError = (message: string): boolean => {
+  const normalized = message.toLowerCase();
+  return normalized.includes('preview is not ready') || normalized.includes('warming up');
+};
+
 export const EmployeeDashboardPage = () => {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
@@ -250,6 +260,27 @@ export const EmployeeDashboardPage = () => {
     }
   }, []);
 
+  const ensurePreviewReady = useCallback(async (): Promise<boolean> => {
+    const deadline = Date.now() + 8_000;
+
+    while (Date.now() < deadline) {
+      const video = videoRef.current;
+      const stream = mediaStreamRef.current;
+      if (video && stream) {
+        if (video.srcObject !== stream) {
+          video.srcObject = stream;
+        }
+        await video.play().catch(() => undefined);
+        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 1 && video.videoHeight > 1) {
+          return true;
+        }
+      }
+      await sleep(120);
+    }
+
+    return false;
+  }, []);
+
   const captureFrame = useCallback(async (): Promise<Blob> => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -380,10 +411,21 @@ export const EmployeeDashboardPage = () => {
     setScanResult(null);
     setScanError(null);
     setCapturedFrameCount(0);
-    setCountdownSeconds(Math.ceil(profile.durationMs / 1000));
     setScanPhase('capturing');
 
+    const previewReady = await ensurePreviewReady();
+    if (runId !== scanRunRef.current) return;
+    if (!previewReady) {
+      const message = 'MindWell could not initialize the webcam preview. Please retry the scan.';
+      setScanPhase('error');
+      setScanError(message);
+      toast.error(message);
+      detachCamera('idle');
+      return;
+    }
+
     const endAt = Date.now() + profile.durationMs;
+    setCountdownSeconds(Math.ceil(profile.durationMs / 1000));
 
     const finalizeCapture = () => {
       if (runId !== scanRunRef.current) return;
@@ -415,11 +457,15 @@ export const EmployeeDashboardPage = () => {
         }
       } catch (error) {
         if (runId !== scanRunRef.current) return;
-        const message =
-          error instanceof Error ? error.message : 'MindWell could not capture the webcam frame. Please retry.';
+        const message = error instanceof Error ? error.message : 'MindWell could not capture the webcam frame.';
+        if (isTransientCaptureError(message)) {
+          return;
+        }
+
+        const normalizedMessage = `${message} Please retry the scan.`;
         setScanPhase('error');
-        setScanError(message);
-        toast.error(message);
+        setScanError(normalizedMessage);
+        toast.error(normalizedMessage);
         ++scanRunRef.current;
         clearTimers();
         detachCamera('idle');
@@ -437,11 +483,15 @@ export const EmployeeDashboardPage = () => {
     countdownIntervalRef.current = window.setInterval(() => {
       const nextSeconds = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
       setCountdownSeconds(nextSeconds);
+      if (nextSeconds === 0) {
+        finalizeCapture();
+      }
     }, 250);
   }, [
     captureFrame,
     clearTimers,
     detachCamera,
+    ensurePreviewReady,
     loadModelStatus,
     modelStatus,
     modelStatusError,
