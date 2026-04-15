@@ -9,11 +9,13 @@ from app.core.config import settings
 from app.db.base import Base
 from app.models import (  # noqa: F401
     AuditLog,
+    CheckInSession,
     Company,
     CompanyHead,
     Department,
     DepartmentManager,
     Employee,
+    QuestionnaireResponse,
     SystemAdminProfile,
     User,
 )

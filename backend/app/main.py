@@ -13,12 +13,14 @@ from app.db.session import SessionLocal
 # Import models so SQLAlchemy metadata includes all tables for create_all.
 from app.models import (  # noqa: F401
     AuditLog,
+    CheckInSession,
     Company,
     CompanyHead,
     Department,
     DepartmentManager,
     Employee,
     Invitation,
+    QuestionnaireResponse,
     SystemAdminProfile,
     User,
 )

@@ -26,6 +26,10 @@ import type {
   FrameMoodPrediction,
   VisionModelStatus,
   VisionPredictionResult,
+  StartSessionResponse,
+  SubmitAnswerResponse,
+  SessionDetail,
+  SessionListResponse,
 } from '../types/domain';
 
 export interface ListQuery {
@@ -546,5 +550,37 @@ export const employeesApi = {
   },
   remove: async (id: number): Promise<void> => {
     await apiClient.delete(`/employees/${id}`);
+  },
+};
+
+export interface StartSessionPayload {
+  facial_score: number;
+  facial_emotions: Record<string, unknown> | null;
+}
+
+export interface SubmitAnswerPayload {
+  session_id: number;
+  question_id: string;
+  answer_index: number;
+}
+
+export const questionnaireApi = {
+  startSession: async (payload: StartSessionPayload): Promise<StartSessionResponse> => {
+    const response = await apiClient.post<StartSessionResponse>('/questionnaire/start', payload);
+    return response.data;
+  },
+  submitAnswer: async (payload: SubmitAnswerPayload): Promise<SubmitAnswerResponse> => {
+    const response = await apiClient.post<SubmitAnswerResponse>('/questionnaire/answer', payload);
+    return response.data;
+  },
+  getSession: async (sessionId: number): Promise<SessionDetail> => {
+    const response = await apiClient.get<SessionDetail>(`/questionnaire/session/${sessionId}`);
+    return response.data;
+  },
+  listSessions: async (page = 1, pageSize = 10): Promise<SessionListResponse> => {
+    const response = await apiClient.get<SessionListResponse>('/questionnaire/sessions', {
+      params: { page, page_size: pageSize },
+    });
+    return response.data;
   },
 };

@@ -237,3 +237,73 @@ export interface VisionModelStatus {
   class_labels: string[];
   load_error: string | null;
 }
+
+// ---------- Questionnaire types ----------
+
+export type ThresholdTier = 'low' | 'moderate' | 'high' | 'severe';
+
+export interface QuestionOption {
+  label: string;
+  score: number;
+}
+
+export interface QuestionOut {
+  id: string;
+  text: string;
+  domain: string;
+  options: QuestionOption[];
+  sequence_order: number;
+  total_estimated: number;
+}
+
+export interface StartSessionResponse {
+  session_id: number;
+  first_question: QuestionOut;
+}
+
+export interface SubmitAnswerResponse {
+  is_complete: boolean;
+  next_question: QuestionOut | null;
+  questionnaire_score: number | null;
+  composite_score: number | null;
+  threshold_tier: ThresholdTier | null;
+}
+
+export interface AnswerDetail {
+  question_id: string;
+  question_text: string;
+  domain: string;
+  answer_index: number;
+  answer_label: string;
+  score: number;
+  sequence_order: number;
+}
+
+export interface SessionDetail {
+  session_id: number;
+  facial_score: number | null;
+  facial_emotions: Record<string, unknown> | null;
+  questionnaire_score: number | null;
+  composite_score: number | null;
+  threshold_tier: ThresholdTier | null;
+  status: string;
+  created_at: string | null;
+  completed_at: string | null;
+  questions_and_answers: AnswerDetail[];
+}
+
+export interface SessionListItem {
+  session_id: number;
+  facial_score: number | null;
+  questionnaire_score: number | null;
+  composite_score: number | null;
+  threshold_tier: ThresholdTier | null;
+  status: string;
+  created_at: string | null;
+  completed_at: string | null;
+}
+
+export interface SessionListResponse {
+  items: SessionListItem[];
+  meta: PaginationMeta;
+}

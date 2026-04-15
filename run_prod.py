@@ -25,11 +25,13 @@ def detect_frontend_dir(root_dir: Path) -> Path:
 
 
 def resolve_python_executable(root_dir: Path) -> str:
-    current = Path(sys.executable).resolve()
+    current = Path(sys.executable)
+    current_resolved = current.resolve()
+    current_prefix = Path(sys.prefix).resolve()
 
     for venv_dir_name in VENV_DIR_CANDIDATES:
         venv_root = (root_dir / venv_dir_name).resolve()
-        if venv_root in current.parents:
+        if venv_root in current.parents or venv_root in current_resolved.parents or venv_root == current_prefix:
             return str(current)
 
     interpreter_rel = "Scripts/python.exe" if IS_WINDOWS else "bin/python"
@@ -41,15 +43,16 @@ def resolve_python_executable(root_dir: Path) -> str:
 
     if existing_candidates:
         expected = existing_candidates[0]
-        if current != expected.resolve():
+        expected_resolved = expected.resolve()
+        if current_resolved != expected_resolved:
             print(
                 f"[WARN] You are not running from root .venv. Expected: {expected}\n"
-                f"       Current interpreter: {current}\n"
+                f"       Current interpreter: {current_resolved}\n"
                 "       Continuing with detected root venv interpreter.",
                 file=sys.stderr,
             )
             return str(expected)
-        return str(current)
+        return str(expected)
 
     raise RuntimeError(
         "Root virtual environment not found (.venv or venv).\n"

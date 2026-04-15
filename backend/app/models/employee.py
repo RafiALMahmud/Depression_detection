@@ -7,6 +7,7 @@ from app.db.base import Base
 from app.models.base_mixins import TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.check_in_session import CheckInSession
     from app.models.company import Company
     from app.models.department import Department
     from app.models.user import User
@@ -25,4 +26,7 @@ class Employee(Base, TimestampMixin):
     user: Mapped["User"] = relationship(back_populates="employee_profile", foreign_keys=[user_id])
     company: Mapped["Company"] = relationship(back_populates="employees")
     department: Mapped["Department"] = relationship(back_populates="employees")
+    check_in_sessions: Mapped[list["CheckInSession"]] = relationship(
+        back_populates="employee", cascade="all, delete-orphan"
+    )
 

@@ -6,10 +6,13 @@ import { visionApi } from '../api/services';
 import { useAuth } from '../auth/AuthContext';
 import { AppShell } from '../components/dashboard/AppShell';
 import { StatsCard } from '../components/dashboard/StatsCard';
-import type { VisionModelStatus, VisionPredictionResult } from '../types/domain';
+import { QuestionnaireFlow } from '../components/questionnaire/QuestionnaireFlow';
+import type { CompletionSummary } from '../components/questionnaire/QuestionnaireFlow';
+import type { VisionModelStatus, VisionPredictionResult, ThresholdTier } from '../types/domain';
 import { getDashboardPathByRole } from '../utils/roles';
 
 type DashboardSectionId = 'overview' | 'facial-scan' | 'support';
+type CheckInPhase = 'scan' | 'questionnaire' | 'results';
 type CameraState = 'idle' | 'requesting' | 'ready' | 'denied' | 'unsupported' | 'error';
 type ScanPhase = 'idle' | 'capturing' | 'uploading' | 'success' | 'error';
 
@@ -66,6 +69,29 @@ const resolveVisionErrorMessage = (error: unknown, fallback: string): string => 
     return error.message;
   }
   return fallback;
+};
+
+/**
+ * Convert the vision prediction into a depression-oriented facial mood score (0-100).
+ * Higher scores indicate more depressive indicators (sad, fear, disgust, angry contribute
+ * positively; happy contributes negatively; neutral is baseline).
+ */
+const computeFacialMoodScore = (result: VisionPredictionResult): number => {
+  const weights: Record<string, number> = {
+    sad: 1.0,
+    fear: 0.7,
+    angry: 0.5,
+    disgust: 0.4,
+    neutral: 0.3,
+    surprise: 0.2,
+    happy: 0.0,
+  };
+  let weightedSum = 0;
+  for (const score of result.averaged_scores) {
+    const w = weights[score.label.toLowerCase()] ?? 0.3;
+    weightedSum += score.confidence * w;
+  }
+  return Math.min(100, Math.max(0, Math.round(weightedSum * 100)));
 };
 
 const toTitleCase = (value: string): string =>
@@ -127,6 +153,9 @@ export const EmployeeDashboardPage = () => {
   const [scanResult, setScanResult] = useState<VisionPredictionResult | null>(null);
   const [capturedFrameCount, setCapturedFrameCount] = useState(0);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
+
+  const [checkInPhase, setCheckInPhase] = useState<CheckInPhase>('scan');
+  const [completionSummary, setCompletionSummary] = useState<CompletionSummary | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -602,6 +631,108 @@ export const EmployeeDashboardPage = () => {
     );
   };
 
+  const handleQuestionnaireComplete = useCallback((summary: CompletionSummary) => {
+    setCompletionSummary(summary);
+    setCheckInPhase('results');
+  }, []);
+
+  const handleQuestionnaireCancel = useCallback(() => {
+    setCheckInPhase('scan');
+  }, []);
+
+  const handleStartNewCheckIn = useCallback(() => {
+    setScanResult(null);
+    setScanError(null);
+    setScanPhase('idle');
+    setCheckInPhase('scan');
+    setCompletionSummary(null);
+  }, []);
+
+  const renderQuestionnaireSection = () => {
+    if (!scanResult) return null;
+
+    return (
+      <section className="mw-entity-layout">
+        <div className="mw-card mw-entity-header">
+          <div className="mw-entity-header-row">
+            <div>
+              <p className="mw-entity-kicker">Step 2 of 2</p>
+              <h2 className="mw-entity-title">Adaptive Questionnaire</h2>
+              <p className="mw-entity-description">
+                Answer 5–10 questions adapted to your responses. This combines with your facial scan to compute
+                your Composite Depression Score.
+              </p>
+            </div>
+            <span className="mw-badge mw-badge-info">PHQ-9 Inspired</span>
+          </div>
+        </div>
+
+        <QuestionnaireFlow
+          facialScanResult={scanResult}
+          facialScore={computeFacialMoodScore(scanResult)}
+          onComplete={handleQuestionnaireComplete}
+          onCancel={handleQuestionnaireCancel}
+        />
+      </section>
+    );
+  };
+
+  const renderResultsSection = () => {
+    if (!completionSummary) return null;
+
+    const tierColors: Record<string, { label: string; badge: string }> = {
+      low: { label: 'Low', badge: 'mw-badge-success' },
+      moderate: { label: 'Moderate', badge: 'mw-badge-warning' },
+      high: { label: 'High', badge: 'mw-badge-warning' },
+      severe: { label: 'Severe', badge: 'mw-badge-danger' },
+    };
+
+    const tierInfo = tierColors[completionSummary.thresholdTier] ?? tierColors.low;
+
+    return (
+      <section className="mw-entity-layout">
+        <div className="mw-card mw-entity-header">
+          <div className="mw-entity-header-row">
+            <div>
+              <p className="mw-entity-kicker">Check-In Complete</p>
+              <h2 className="mw-entity-title">Session Results</h2>
+              <p className="mw-entity-description">
+                Your check-in session has been saved. Here is your composite depression screening result.
+              </p>
+            </div>
+            <span className={`mw-badge ${tierInfo.badge}`}>{tierInfo.label}</span>
+          </div>
+        </div>
+
+        <section className="mw-stat-grid">
+          <StatsCard label="Facial Mood Score" value={Math.round(completionSummary.facialScore)} />
+          <StatsCard label="Questionnaire Score" value={Math.round(completionSummary.questionnaireScore)} />
+          <StatsCard label="Composite Score" value={Math.round(completionSummary.compositeScore)} />
+        </section>
+
+        <div className="mw-panel-grid">
+          <article className="mw-card mw-info-panel">
+            <p className="mw-entity-kicker">What&apos;s Next</p>
+            <h3>Your session is recorded</h3>
+            <p>
+              This session has been stored in your private Depression Score Log. You can view your session
+              history and trends from the Overview section.
+            </p>
+            <div className="mw-info-panel-actions">
+              <button
+                type="button"
+                className="mw-btn-primary"
+                onClick={handleStartNewCheckIn}
+              >
+                Back to Dashboard
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+    );
+  };
+
   const renderScanSection = () => {
     const progressPercent =
       selectedProfile.frameCount > 0 ? Math.min(100, (capturedFrameCount / selectedProfile.frameCount) * 100) : 0;
@@ -794,6 +925,15 @@ export const EmployeeDashboardPage = () => {
                     type="button"
                     className="mw-btn-primary"
                     onClick={() => {
+                      setCheckInPhase('questionnaire');
+                    }}
+                  >
+                    Continue to Questionnaire
+                  </button>
+                  <button
+                    type="button"
+                    className="mw-btn-ghost"
+                    onClick={() => {
                       void startScan();
                     }}
                   >
@@ -851,7 +991,11 @@ export const EmployeeDashboardPage = () => {
 
   const renderSection = () => {
     if (activeSectionId === 'overview') return renderOverview();
-    if (activeSectionId === 'facial-scan') return renderScanSection();
+    if (activeSectionId === 'facial-scan') {
+      if (checkInPhase === 'questionnaire') return renderQuestionnaireSection();
+      if (checkInPhase === 'results') return renderResultsSection();
+      return renderScanSection();
+    }
     if (activeSectionId === 'support') return renderSupportSection();
     return renderOverview();
   };
