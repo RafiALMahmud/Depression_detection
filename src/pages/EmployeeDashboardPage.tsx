@@ -660,7 +660,7 @@ export const EmployeeDashboardPage = () => {
               <h2 className="mw-entity-title">Adaptive Questionnaire</h2>
               <p className="mw-entity-description">
                 Answer 5–10 questions adapted to your responses. This combines with your facial scan to compute
-                your Composite Depression Score.
+                your Composite Stress Score.
               </p>
             </div>
             <span className="mw-badge mw-badge-info">PHQ-9 Inspired</span>
@@ -681,10 +681,10 @@ export const EmployeeDashboardPage = () => {
     if (!completionSummary) return null;
 
     const tierColors: Record<string, { label: string; badge: string }> = {
-      low: { label: 'Low', badge: 'mw-badge-success' },
-      moderate: { label: 'Moderate', badge: 'mw-badge-warning' },
-      high: { label: 'High', badge: 'mw-badge-warning' },
-      severe: { label: 'Severe', badge: 'mw-badge-danger' },
+      low: { label: 'Not Stressed', badge: 'mw-badge-success' },
+      moderate: { label: 'Moderately Stressed', badge: 'mw-badge-warning' },
+      high: { label: 'Stressed', badge: 'mw-badge-warning' },
+      severe: { label: 'Very Stressed', badge: 'mw-badge-danger' },
     };
 
     const tierInfo = tierColors[completionSummary.thresholdTier] ?? tierColors.low;
@@ -697,7 +697,7 @@ export const EmployeeDashboardPage = () => {
               <p className="mw-entity-kicker">Check-In Complete</p>
               <h2 className="mw-entity-title">Session Results</h2>
               <p className="mw-entity-description">
-                Your check-in session has been saved. Here is your composite depression screening result.
+                Your check-in session has been saved. Here is your composite stress screening result.
               </p>
             </div>
             <span className={`mw-badge ${tierInfo.badge}`}>{tierInfo.label}</span>
@@ -715,7 +715,7 @@ export const EmployeeDashboardPage = () => {
             <p className="mw-entity-kicker">What&apos;s Next</p>
             <h3>Your session is recorded</h3>
             <p>
-              This session has been stored in your private Depression Score Log. You can view your session
+              This session has been stored in your private stress check-in log. You can view your session
               history and trends from the Overview section.
             </p>
             <div className="mw-info-panel-actions">

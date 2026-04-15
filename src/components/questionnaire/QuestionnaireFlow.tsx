@@ -28,28 +28,28 @@ export interface CompletionSummary {
 
 const TIER_CONFIG: Record<ThresholdTier, { label: string; color: string; bg: string; message: string }> = {
   low: {
-    label: 'Low',
+    label: 'Not Stressed',
     color: 'text-emerald-700',
     bg: 'bg-emerald-50 border-emerald-200',
-    message: "You're doing well. Keep up your regular check-ins to stay on track.",
+    message: "You're doing well. Keep up your regular check-ins to stay balanced.",
   },
   moderate: {
-    label: 'Moderate',
+    label: 'Moderately Stressed',
     color: 'text-amber-700',
     bg: 'bg-amber-50 border-amber-200',
-    message: 'Some indicators suggest mild difficulty. Consider exploring the wellness resources available to you.',
+    message: 'Some indicators suggest moderate stress. Consider using the wellness resources available to you.',
   },
   high: {
-    label: 'High',
+    label: 'Stressed',
     color: 'text-orange-700',
     bg: 'bg-orange-50 border-orange-200',
-    message: 'Your scores indicate you may be going through a tough time. Please reach out to a support resource.',
+    message: 'Your scores indicate elevated stress. Please reach out to a support resource.',
   },
   severe: {
-    label: 'Severe',
+    label: 'Very Stressed',
     color: 'text-red-700',
     bg: 'bg-red-50 border-red-200',
-    message: 'Your scores suggest significant difficulty. We strongly encourage you to talk to a counselor or trusted person.',
+    message: 'Your scores suggest very high stress. We strongly encourage you to talk to a counselor or trusted person.',
   },
 };
 
@@ -189,7 +189,7 @@ export const QuestionnaireFlow = ({
     return (
       <div className="mw-card" style={{ padding: '2rem' }}>
         <p className="mw-entity-kicker">Check-In Complete</p>
-        <h3 style={{ marginBottom: '1.5rem' }}>Your Depression Screening Results</h3>
+        <h3 style={{ marginBottom: '1.5rem' }}>Your Stress Screening Results</h3>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
           <div className="mw-card" style={{ padding: '1rem', textAlign: 'center' }}>
@@ -215,7 +215,7 @@ export const QuestionnaireFlow = ({
           style={{ padding: '1rem', borderRadius: '0.5rem', marginBottom: '1.5rem' }}
         >
           <p style={{ fontWeight: 600, marginBottom: '0.25rem' }} className={tierConfig.color}>
-            Threshold: {tierConfig.label}
+            Stress Level: {tierConfig.label}
           </p>
           <p style={{ fontSize: '0.875rem' }}>{tierConfig.message}</p>
         </div>
