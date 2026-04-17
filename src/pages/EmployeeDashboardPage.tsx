@@ -8,7 +8,7 @@ import { AppShell } from '../components/dashboard/AppShell';
 import { StatsCard } from '../components/dashboard/StatsCard';
 import { QuestionnaireFlow } from '../components/questionnaire/QuestionnaireFlow';
 import type { CompletionSummary } from '../components/questionnaire/QuestionnaireFlow';
-import type { VisionModelStatus, VisionPredictionResult, ThresholdTier } from '../types/domain';
+import type { LiveEmotionResult, VisionModelStatus, VisionPredictionResult, ThresholdTier } from '../types/domain';
 import { getDashboardPathByRole } from '../utils/roles';
 
 type DashboardSectionId = 'overview' | 'facial-scan' | 'support';
@@ -153,6 +153,8 @@ export const EmployeeDashboardPage = () => {
   const [scanResult, setScanResult] = useState<VisionPredictionResult | null>(null);
   const [capturedFrameCount, setCapturedFrameCount] = useState(0);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
+
+  const [liveEmotion, setLiveEmotion] = useState<LiveEmotionResult | null>(null);
 
   const [checkInPhase, setCheckInPhase] = useState<CheckInPhase>('scan');
   const [completionSummary, setCompletionSummary] = useState<CompletionSummary | null>(null);
@@ -392,6 +394,7 @@ export const EmployeeDashboardPage = () => {
       setScanPhase('idle');
       setCapturedFrameCount(0);
       setCountdownSeconds(0);
+      setLiveEmotion(null);
       if (announce) {
         toast.info('Facial scan stopped.');
       }
@@ -480,6 +483,10 @@ export const EmployeeDashboardPage = () => {
 
         activeFramesRef.current = [...activeFramesRef.current, frame];
         setCapturedFrameCount(activeFramesRef.current.length);
+
+        visionApi.predictFrame(frame).then((result) => {
+          if (runId === scanRunRef.current) setLiveEmotion(result);
+        }).catch(() => undefined);
 
         if (activeFramesRef.current.length >= profile.frameCount) {
           finalizeCapture();
@@ -774,6 +781,18 @@ export const EmployeeDashboardPage = () => {
                     <span className={`mw-scan-live-pill ${scanPhase === 'capturing' ? 'active' : ''}`}>
                       {scanPhase === 'capturing' ? 'Scanning live' : 'Preview active'}
                     </span>
+                    {scanPhase === 'capturing' && liveEmotion && (
+                      <div className="mw-live-emotion-overlay">
+                        <span className="mw-live-emotion-label">{toTitleCase(liveEmotion.dominant_label)}</span>
+                        <div className="mw-live-emotion-meter-track">
+                          <div
+                            className="mw-live-emotion-meter-fill"
+                            style={{ width: `${Math.round(liveEmotion.dominant_confidence * 100)}%` }}
+                          />
+                        </div>
+                        <span className="mw-live-emotion-confidence">{toPercent(liveEmotion.dominant_confidence)}</span>
+                      </div>
+                    )}
                     <div className="mw-scan-video-meta">
                       <strong>30-second guided scan</strong>
                       <span>{capturedFrameCount} frames captured</span>

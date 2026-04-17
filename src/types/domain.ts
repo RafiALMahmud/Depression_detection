@@ -175,6 +175,16 @@ export interface CompanyDepartmentBreakdown {
   employee_count: number;
 }
 
+export type ComplianceStatus = 'compliant' | 'non_compliant' | 'pending';
+
+export interface EmployeeComplianceEntry {
+  employee_id: number;
+  full_name: string;
+  email: string;
+  compliance_status: ComplianceStatus;
+  sessions_this_week: number;
+}
+
 export interface DepartmentManagerSummary {
   company_id: number;
   company_name: string;
@@ -208,6 +218,12 @@ export interface InvitationListItem {
 export interface MoodScore {
   label: string;
   confidence: number;
+}
+
+export interface LiveEmotionResult {
+  dominant_label: string;
+  dominant_confidence: number;
+  scores: MoodScore[];
 }
 
 export interface FrameMoodPrediction {

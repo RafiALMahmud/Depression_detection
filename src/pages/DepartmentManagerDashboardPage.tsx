@@ -12,6 +12,8 @@ import {
   type EmployeeUpdatePayload,
   type InvitationListQuery,
 } from '../api/services';
+import { DataTable } from '../components/dashboard/DataTable';
+import type { EmployeeComplianceEntry } from '../types/domain';
 import { useAuth } from '../auth/AuthContext';
 import { AppShell } from '../components/dashboard/AppShell';
 import { EntitySection } from '../components/dashboard/EntitySection';
@@ -90,6 +92,9 @@ export const DepartmentManagerDashboardPage = () => {
   const [summaryLoading, setSummaryLoading] = useState<boolean>(true);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [sectionReloadKey, setSectionReloadKey] = useState(0);
+  const [complianceData, setComplianceData] = useState<EmployeeComplianceEntry[] | null>(null);
+  const [complianceLoading, setComplianceLoading] = useState(false);
+  const [complianceError, setComplianceError] = useState<string | null>(null);
   const summaryRunRef = useRef(0);
 
   const allowed = user?.role === 'department_manager';
@@ -239,9 +244,29 @@ export const DepartmentManagerDashboardPage = () => {
     [handleInvitationCancel, handleInvitationResend],
   );
 
+  const loadCompliance = useCallback(async () => {
+    setComplianceLoading(true);
+    setComplianceError(null);
+    try {
+      const data = await employeesApi.compliance();
+      setComplianceData(data);
+    } catch (error) {
+      setComplianceError(getApiErrorMessage(error, 'Failed to load compliance data'));
+    } finally {
+      setComplianceLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSectionId === 'compliance' && !complianceData && !complianceLoading) {
+      void loadCompliance();
+    }
+  }, [activeSectionId, complianceData, complianceLoading, loadCompliance]);
+
   const sections = [
     { id: 'overview', label: 'Overview' },
     { id: 'employees', label: 'Employees' },
+    { id: 'compliance', label: 'Compliance' },
     { id: 'detection-analytics', label: 'Detection Analytics' },
     { id: 'facial-scores', label: 'Facial Scores' },
     { id: 'questionnaire-scores', label: 'Questionnaire Scores' },
@@ -389,6 +414,95 @@ export const DepartmentManagerDashboardPage = () => {
     );
   };
 
+  const renderComplianceSection = () => {
+    const badgeClass = (status: string) => {
+      if (status === 'compliant') return 'mw-badge-success';
+      if (status === 'non_compliant') return 'mw-badge-danger';
+      return 'mw-badge-warning';
+    };
+    const badgeLabel = (status: string) => {
+      if (status === 'compliant') return 'Compliant';
+      if (status === 'non_compliant') return 'Non-Compliant';
+      return 'Pending';
+    };
+
+    const nonCompliantCount = complianceData?.filter((e) => e.compliance_status === 'non_compliant').length ?? 0;
+    const compliantCount = complianceData?.filter((e) => e.compliance_status === 'compliant').length ?? 0;
+
+    return (
+      <section className="mw-entity-layout">
+        <div className="mw-card mw-entity-header">
+          <div className="mw-entity-header-row">
+            <div>
+              <p className="mw-entity-kicker">Weekly Check-In</p>
+              <h2 className="mw-entity-title">Employee Compliance</h2>
+              <p className="mw-entity-description">
+                Employees must complete 2 check-in sessions per week. Non-Compliant means they missed both sessions last week.
+              </p>
+            </div>
+            {nonCompliantCount > 0 && (
+              <span className="mw-badge mw-badge-danger">{nonCompliantCount} Non-Compliant</span>
+            )}
+          </div>
+        </div>
+
+        {complianceLoading && (
+          <div className="mw-card mw-loading-card">Loading compliance data...</div>
+        )}
+        {complianceError && !complianceLoading && (
+          <div className="mw-card mw-empty-state">
+            <h3>Could not load compliance</h3>
+            <p>{complianceError}</p>
+            <button type="button" className="mw-btn-primary mt-4" onClick={() => { void loadCompliance(); }}>
+              Retry
+            </button>
+          </div>
+        )}
+        {complianceData && !complianceLoading && (
+          <>
+            <section className="mw-stat-grid">
+              <StatsCard label="Total Employees" value={complianceData.length} />
+              <StatsCard label="Compliant" value={compliantCount} />
+              <StatsCard label="Non-Compliant" value={nonCompliantCount} />
+              <StatsCard label="Pending" value={complianceData.length - compliantCount - nonCompliantCount} />
+            </section>
+
+            <article className="mw-card">
+              <DataTable<EmployeeComplianceEntry>
+                columns={[
+                  { key: 'name', title: 'Name', render: (e) => e.full_name },
+                  { key: 'email', title: 'Email', render: (e) => e.email },
+                  {
+                    key: 'sessions',
+                    title: 'Sessions This Week',
+                    render: (e) => `${e.sessions_this_week} / 2`,
+                  },
+                  {
+                    key: 'status',
+                    title: 'Status',
+                    render: (e) => (
+                      <span className={`mw-badge ${badgeClass(e.compliance_status)}`}>
+                        {badgeLabel(e.compliance_status)}
+                      </span>
+                    ),
+                  },
+                ] satisfies TableColumn<EmployeeComplianceEntry>[]}
+                items={complianceData}
+                getRowId={(e) => e.employee_id}
+                emptyMessage="No employees in this department yet."
+              />
+              <div className="mw-info-panel-actions" style={{ marginTop: '16px' }}>
+                <button type="button" className="mw-btn-ghost" onClick={() => { void loadCompliance(); }}>
+                  Refresh
+                </button>
+              </div>
+            </article>
+          </>
+        )}
+      </section>
+    );
+  };
+
   const renderPlaceholderSection = (
     title: string,
     description: string,
@@ -444,6 +558,10 @@ export const DepartmentManagerDashboardPage = () => {
           </button>
         </div>
       );
+    }
+
+    if (activeSectionId === 'compliance') {
+      return renderComplianceSection();
     }
 
     if (activeSectionId === 'employees') {

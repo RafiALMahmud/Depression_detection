@@ -22,6 +22,9 @@ class Employee(Base, TimestampMixin):
     department_id: Mapped[int] = mapped_column(ForeignKey("departments.id", ondelete="CASCADE"), nullable=False, index=True)
     employee_code: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
     job_title: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    compliance_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="pending"
+    )
 
     user: Mapped["User"] = relationship(back_populates="employee_profile", foreign_keys=[user_id])
     company: Mapped["Company"] = relationship(back_populates="employees")

@@ -30,6 +30,7 @@ from app.services.invitations import (
     sync_pending_invitation_email,
 )
 from app.services.pagination import paginate
+from app.services.questionnaire.session_service import get_department_compliance, update_compliance_status
 from app.services.user_management import create_user, update_user
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
@@ -179,6 +180,20 @@ def create_employee(
     return _serialize_employee(employee)
 
 
+@router.get("/compliance", response_model=list[dict])
+def get_compliance(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.DEPARTMENT_MANAGER)),
+) -> list[dict]:
+    """Return compliance status for all employees in the manager's department."""
+    manager = get_department_manager_profile_for_user_or_403(db, current_user)
+    employees = db.query(Employee).filter(Employee.department_id == manager.department_id).all()
+    for emp in employees:
+        update_compliance_status(db, emp.id)
+    db.commit()
+    return get_department_compliance(db, manager.department_id)
+
+
 @router.get("/{employee_id}", response_model=EmployeeRead)
 def get_employee(
     employee_id: int,
@@ -308,3 +323,5 @@ def delete_employee(
         entity_id=employee_id,
     )
     db.commit()
+
+

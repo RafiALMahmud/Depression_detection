@@ -24,6 +24,12 @@ class VisionPredictionResponse(BaseModel):
     frames: list[FrameMoodPrediction]
 
 
+class LiveEmotionResponse(BaseModel):
+    dominant_label: str = Field(min_length=1, max_length=80)
+    dominant_confidence: float = Field(ge=0.0, le=1.0)
+    scores: list[MoodScore]
+
+
 class VisionModelStatusResponse(BaseModel):
     ready: bool
     message: str = Field(min_length=1, max_length=600)

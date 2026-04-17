@@ -5,7 +5,7 @@ Handles session creation, answer submission, score computation, and retrieval.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,72 @@ from app.services.questionnaire.branching import (
     is_complete,
 )
 from app.services.questionnaire.question_bank import QUESTIONS, get_question
+
+
+def _week_start_utc() -> datetime:
+    """Return midnight UTC of the most recent Monday."""
+    today = datetime.now(timezone.utc).date()
+    monday = today - timedelta(days=today.weekday())
+    return datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc)
+
+
+def _last_week_start_utc() -> datetime:
+    return _week_start_utc() - timedelta(weeks=1)
+
+
+def _count_completed_sessions_since(db: Session, employee_id: int, since: datetime) -> int:
+    return (
+        db.query(CheckInSession)
+        .filter(
+            CheckInSession.employee_id == employee_id,
+            CheckInSession.status == "completed",
+            CheckInSession.created_at >= since,
+        )
+        .count()
+    )
+
+
+def update_compliance_status(db: Session, employee_id: int) -> None:
+    """Recompute and persist compliance_status for an employee."""
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if employee is None:
+        return
+
+    this_week = _week_start_utc()
+    last_week = _last_week_start_utc()
+
+    sessions_this_week = _count_completed_sessions_since(db, employee_id, this_week)
+    sessions_last_week = _count_completed_sessions_since(db, employee_id, last_week) - sessions_this_week
+
+    if sessions_this_week >= 2:
+        employee.compliance_status = "compliant"
+    elif sessions_last_week == 0 and employee.created_at < this_week:
+        # Employee existed last week and completed zero sessions — missed both
+        employee.compliance_status = "non_compliant"
+    else:
+        employee.compliance_status = "pending"
+
+
+def get_department_compliance(db: Session, department_id: int) -> list[dict]:
+    """Return compliance data for all employees in a department."""
+    employees = (
+        db.query(Employee)
+        .filter(Employee.department_id == department_id)
+        .all()
+    )
+
+    this_week = _week_start_utc()
+    result = []
+    for emp in employees:
+        sessions_this_week = _count_completed_sessions_since(db, emp.id, this_week)
+        result.append({
+            "employee_id": emp.id,
+            "full_name": emp.user.full_name if emp.user else "Unknown",
+            "email": emp.user.email if emp.user else "",
+            "compliance_status": emp.compliance_status,
+            "sessions_this_week": sessions_this_week,
+        })
+    return result
 
 
 def _classify_tier(score: float) -> str:
@@ -169,6 +235,7 @@ def submit_answer(
 
     # Finalize questions_asked
     session.questions_asked = build_question_sequence(answers)
+    update_compliance_status(db, employee_id)
 
     return {
         "is_complete": True,

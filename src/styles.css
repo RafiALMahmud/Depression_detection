@@ -1294,6 +1294,46 @@ a {
   box-shadow: 0 0 0 8px rgba(134, 239, 172, 0.16);
 }
 
+.mw-live-emotion-overlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16, 35, 54, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px 16px;
+  backdrop-filter: blur(6px);
+  min-width: 140px;
+}
+
+.mw-live-emotion-label {
+  color: var(--white);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.mw-live-emotion-meter-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.mw-live-emotion-meter-fill {
+  height: 100%;
+  background: #86efac;
+  border-radius: 99px;
+  transition: width 0.4s ease;
+}
+
+.mw-live-emotion-confidence {
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 12px;
+}
+
 .mw-scan-video-meta {
   display: grid;
   gap: 4px;

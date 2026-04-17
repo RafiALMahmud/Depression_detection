@@ -72,6 +72,15 @@ class VisionInferenceService:
             "load_error": load_error,
         }
 
+    def predict_single_frame(self, frame_payload: bytes, *, top_k: int = 3) -> dict[str, Any]:
+        """Run inference on a single frame and return dominant emotion + top scores."""
+        result = self.predict_batch([frame_payload], top_k=top_k)
+        return {
+            "dominant_label": result["dominant_label"],
+            "dominant_confidence": result["dominant_confidence"],
+            "scores": result["averaged_scores"],
+        }
+
     def predict_batch(self, frame_payloads: list[bytes], *, top_k: int = 3) -> dict[str, Any]:
         if not frame_payloads:
             raise InvalidVisionInputError("At least one image frame is required for prediction")

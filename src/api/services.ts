@@ -10,8 +10,10 @@ import type {
   DepartmentManagerSummary,
   DepartmentManagerProfile,
   DepartmentOption,
+  EmployeeComplianceEntry,
   EmployeeProfile,
   InvitationListItem,
+  LiveEmotionResult,
   PaginatedResponse,
   PaginationMeta,
   SummaryInvitationPreview,
@@ -293,6 +295,14 @@ export const visionApi = {
     });
     return normalizeVisionPrediction(response.data);
   },
+  predictFrame: async (frame: Blob, topK = 3): Promise<LiveEmotionResult> => {
+    const formData = new FormData();
+    formData.append('frame', frame, 'live-frame.jpg');
+    const response = await apiClient.post<LiveEmotionResult>('/vision/predict-frame', formData, {
+      params: { top_k: topK },
+    });
+    return response.data;
+  },
 };
 
 export const invitationsApi = {
@@ -539,6 +549,10 @@ export const employeesApi = {
   list: async (query: ListQuery): Promise<PaginatedResponse<EmployeeProfile>> => {
     const response = await apiClient.get<PaginatedResponse<EmployeeProfile>>('/employees', { params: toListParams(query) });
     return normalizePaginatedResponse<EmployeeProfile>(response.data);
+  },
+  compliance: async (): Promise<EmployeeComplianceEntry[]> => {
+    const response = await apiClient.get<EmployeeComplianceEntry[]>('/employees/compliance');
+    return response.data;
   },
   create: async (payload: EmployeePayload): Promise<EmployeeProfile> => {
     const response = await apiClient.post<EmployeeProfile>('/employees', payload);
