@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.models.company_head import CompanyHead
@@ -12,6 +12,35 @@ from app.services.hierarchy import (
     get_company_head_profile_for_user_or_403,
     get_department_manager_profile_for_user_or_403,
 )
+
+
+def repair_schema_compatibility(db: Session) -> dict[str, int]:
+    """
+    Lightweight startup schema compatibility guard.
+    Handles additive hotfixes for environments where tables were created before
+    the latest migration was applied.
+    """
+    report = {
+        "employee_compliance_status_added": 0,
+    }
+
+    bind = db.get_bind()
+    inspector = inspect(bind)
+    table_names = set(inspector.get_table_names())
+
+    if "employees" in table_names:
+        employee_columns = {column["name"] for column in inspector.get_columns("employees")}
+        if "compliance_status" not in employee_columns:
+            db.execute(
+                text(
+                    "ALTER TABLE employees "
+                    "ADD COLUMN compliance_status VARCHAR(20) NOT NULL DEFAULT 'pending'"
+                )
+            )
+            report["employee_compliance_status_added"] = 1
+
+    db.flush()
+    return report
 
 
 def repair_database_integrity(db: Session) -> dict[str, int]:
@@ -95,4 +124,3 @@ def repair_database_integrity(db: Session) -> dict[str, int]:
 
     db.flush()
     return report
-

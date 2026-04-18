@@ -10,6 +10,7 @@ import {
   employeesApi,
   invitationsApi,
   optionsApi,
+  reportsApi,
   type DepartmentManagerPayload,
   type DepartmentManagerUpdatePayload,
   type EmployeePayload,
@@ -30,6 +31,7 @@ import type {
   DepartmentOption,
   EmployeeProfile,
   InvitationListItem,
+  ReportRead,
 } from '../types/domain';
 import { getDashboardPathByRole } from '../utils/roles';
 
@@ -115,6 +117,11 @@ export const CompanyHeadDashboardPage = () => {
   const [sectionReloadKey, setSectionReloadKey] = useState(0);
   const [departmentSearchInput, setDepartmentSearchInput] = useState('');
   const [departmentSearch, setDepartmentSearch] = useState('');
+  const [reportArchive, setReportArchive] = useState<ReportRead[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportsError, setReportsError] = useState<string | null>(null);
+  const [reportDepartmentFilter, setReportDepartmentFilter] = useState<string>('all');
+  const [reportPdfDownloadingId, setReportPdfDownloadingId] = useState<number | null>(null);
   const summaryRunRef = useRef(0);
   const departmentsRunRef = useRef(0);
 
@@ -223,6 +230,30 @@ export const CompanyHeadDashboardPage = () => {
     [departments],
   );
 
+  const loadReports = useCallback(async () => {
+    setReportsLoading(true);
+    setReportsError(null);
+    try {
+      const data = await reportsApi.list({
+        page: 1,
+        pageSize: 100,
+        departmentId: reportDepartmentFilter === 'all' ? undefined : Number(reportDepartmentFilter),
+      });
+      setReportArchive(data.items);
+    } catch (error) {
+      setReportsError(getApiErrorMessage(error, 'Failed to load submitted reports'));
+    } finally {
+      setReportsLoading(false);
+    }
+  }, [reportDepartmentFilter]);
+
+  useEffect(() => {
+    if (!allowed || activeSectionId !== 'reports') {
+      return;
+    }
+    void loadReports();
+  }, [allowed, activeSectionId, loadReports]);
+
   const refreshAfterChange = useCallback(async () => {
     await Promise.all([loadSummary(), loadDepartments()]);
   }, [loadSummary, loadDepartments]);
@@ -260,6 +291,30 @@ export const CompanyHeadDashboardPage = () => {
     },
     [bumpSectionReload, refreshAfterChange],
   );
+
+  const handleReportPdfDownload = useCallback(async (report: ReportRead) => {
+    try {
+      setReportPdfDownloadingId(report.id);
+      const blob = await reportsApi.downloadPdf(report.id);
+      const fileUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const submittedDate = new Date(report.submitted_at);
+      const dateSegment = Number.isNaN(submittedDate.getTime())
+        ? 'report'
+        : submittedDate.toISOString().slice(0, 10);
+      link.href = fileUrl;
+      link.download = `mindwell-report-v${report.version}-${dateSegment}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(fileUrl);
+      toast.success('Report PDF downloaded successfully');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to download report PDF'));
+    } finally {
+      setReportPdfDownloadingId(null);
+    }
+  }, []);
 
   const invitationRowActions = useCallback(
     <T extends InvitableProfile>(): RowAction<T>[] => [
@@ -318,6 +373,7 @@ export const CompanyHeadDashboardPage = () => {
     { id: 'department-managers', label: 'Department Managers' },
     { id: 'employees', label: 'Employees' },
     { id: 'departments', label: 'Departments' },
+    { id: 'reports', label: 'Reports' },
     { id: 'invitations', label: 'Invitations' },
   ];
 
@@ -397,6 +453,32 @@ export const CompanyHeadDashboardPage = () => {
       key: 'expires_at',
       title: 'Expires',
       render: (item) => (item.expires_at ? new Date(item.expires_at).toLocaleDateString() : '-'),
+    },
+  ];
+
+  const reportColumns: TableColumn<ReportRead>[] = [
+    { key: 'version', title: 'Version', render: (item) => <strong>v{item.version}</strong> },
+    { key: 'department', title: 'Department', render: (item) => departmentNameMap.get(item.department_id) ?? `#${item.department_id}` },
+    { key: 'flagged', title: 'Flagged', render: (item) => item.flagged_employee_count },
+    { key: 'submitted_by', title: 'Submitted By', render: (item) => item.manager_name ?? '-' },
+    { key: 'submitted_at', title: 'Submitted', render: (item) => new Date(item.submitted_at).toLocaleDateString() },
+    { key: 'status', title: 'Status', render: (item) => <span className="mw-badge mw-badge-success">{item.status}</span> },
+    {
+      key: 'pdf',
+      title: 'PDF',
+      render: (item) => (
+        <button
+          type="button"
+          className="mw-btn-ghost"
+          style={{ padding: '4px 12px', fontSize: '13px' }}
+          onClick={() => {
+            void handleReportPdfDownload(item);
+          }}
+          disabled={reportPdfDownloadingId === item.id}
+        >
+          {reportPdfDownloadingId === item.id ? 'Preparing...' : 'Download'}
+        </button>
+      ),
     },
   ];
 
@@ -599,6 +681,84 @@ export const CompanyHeadDashboardPage = () => {
     );
   };
 
+  const renderReports = () => {
+    return (
+      <section className="mw-entity-layout">
+        <div className="mw-card mw-entity-header">
+          <div className="mw-entity-header-row">
+            <div>
+              <p className="mw-entity-kicker">Company Reports</p>
+              <h2 className="mw-entity-title">Department Manager Submissions</h2>
+              <p className="mw-entity-description">
+                Review submitted reports from managers across your company and export polished PDF copies.
+              </p>
+            </div>
+          </div>
+
+          <div className="mw-entity-controls">
+            <label className="mw-field mw-entity-search">
+              <span className="mw-field-label">Department Filter</span>
+              <select
+                className="mw-input"
+                value={reportDepartmentFilter}
+                onChange={(event) => setReportDepartmentFilter(event.target.value)}
+              >
+                <option value="all">All Departments</option>
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name} ({department.code})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="mw-entity-control-actions">
+              <button
+                type="button"
+                className="mw-btn-ghost"
+                onClick={() => {
+                  void loadReports();
+                }}
+                disabled={reportsLoading}
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {reportsError ? (
+          <div className="mw-card mw-empty-state">
+            <h3>Reports unavailable</h3>
+            <p>{reportsError}</p>
+            <button
+              type="button"
+              className="mw-btn-primary mt-4"
+              onClick={() => {
+                void loadReports();
+              }}
+            >
+              Retry reports load
+            </button>
+          </div>
+        ) : (
+          <DataTable
+            columns={reportColumns}
+            items={reportArchive}
+            getRowId={(item) => item.id}
+            loading={reportsLoading}
+          />
+        )}
+
+        {!reportsLoading && !reportsError && !reportArchive.length ? (
+          <div className="mw-card mw-empty-state">
+            <h3>No reports submitted yet</h3>
+            <p>Once department managers submit reports, they will appear here with PDF export options.</p>
+          </div>
+        ) : null}
+      </section>
+    );
+  };
+
   const renderSection = () => {
     if (activeSectionId === 'overview') {
       return renderOverview();
@@ -789,6 +949,10 @@ export const CompanyHeadDashboardPage = () => {
 
     if (activeSectionId === 'departments') {
       return renderDepartmentBreakdown();
+    }
+
+    if (activeSectionId === 'reports') {
+      return renderReports();
     }
 
     if (activeSectionId === 'invitations') {

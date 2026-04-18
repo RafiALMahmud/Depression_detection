@@ -109,6 +109,7 @@ export const DepartmentManagerDashboardPage = () => {
   const [reportArchiveLoading, setReportArchiveLoading] = useState(false);
   const [reportView, setReportView] = useState<'builder' | 'archive'>('builder');
   const [selectedReport, setSelectedReport] = useState<ReportRead | null>(null);
+  const [reportPdfDownloadingId, setReportPdfDownloadingId] = useState<number | null>(null);
 
   const summaryRunRef = useRef(0);
 
@@ -294,7 +295,7 @@ export const DepartmentManagerDashboardPage = () => {
   const loadReportArchive = useCallback(async () => {
     setReportArchiveLoading(true);
     try {
-      const data = await reportsApi.list();
+      const data = await reportsApi.list({ page: 1, pageSize: 50 });
       setReportArchive(data.items);
     } catch {
       // silently fail — archive is supplementary
@@ -343,6 +344,31 @@ export const DepartmentManagerDashboardPage = () => {
     return <span className="mw-badge mw-badge-muted">{tier}</span>;
   };
 
+  const handleReportPdfDownload = useCallback(async (report: ReportRead) => {
+    try {
+      setReportPdfDownloadingId(report.id);
+      const blob = await reportsApi.downloadPdf(report.id);
+      const fileUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const submittedDate = new Date(report.submitted_at);
+      const dateSegment = Number.isNaN(submittedDate.getTime())
+        ? 'report'
+        : submittedDate.toISOString().slice(0, 10);
+
+      link.href = fileUrl;
+      link.download = `mindwell-report-v${report.version}-${dateSegment}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(fileUrl);
+      toast.success('PDF downloaded successfully');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to download report PDF'));
+    } finally {
+      setReportPdfDownloadingId(null);
+    }
+  }, []);
+
   const renderReportsSection = () => {
     const flaggedColumns = [
       { key: 'id', title: 'Anonymized ID', render: (e: FlaggedEmployeeEntry) => e.anonymized_id },
@@ -370,6 +396,23 @@ export const DepartmentManagerDashboardPage = () => {
             onClick={() => setSelectedReport(selectedReport?.id === r.id ? null : r)}
           >
             {selectedReport?.id === r.id ? 'Close' : 'View'}
+          </button>
+        ),
+      },
+      {
+        key: 'pdf',
+        title: 'PDF',
+        render: (r: ReportRead) => (
+          <button
+            type="button"
+            className="mw-btn-ghost"
+            style={{ padding: '4px 12px', fontSize: '13px' }}
+            onClick={() => {
+              void handleReportPdfDownload(r);
+            }}
+            disabled={reportPdfDownloadingId === r.id}
+          >
+            {reportPdfDownloadingId === r.id ? 'Preparing...' : 'Download'}
           </button>
         ),
       },

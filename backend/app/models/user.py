@@ -43,13 +43,16 @@ class User(Base, TimestampMixin):
     department_manager_profile: Mapped["DepartmentManager | None"] = relationship(back_populates="user", uselist=False)
     employee_profile: Mapped["Employee | None"] = relationship(back_populates="user", uselist=False)
     created_companies: Mapped[list["Company"]] = relationship(back_populates="created_by_user")
-    audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="actor_user")
+    # Keep audit trails tied to DB-level ON DELETE CASCADE behavior. Without passive_deletes,
+    # SQLAlchemy may try to NULL actor_user_id first, which violates NOT NULL constraints.
+    audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="actor_user", passive_deletes=True)
     invitations: Mapped[list["Invitation"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True, foreign_keys="Invitation.user_id"
     )
     created_invitations: Mapped[list["Invitation"]] = relationship(
         back_populates="created_by_user",
         foreign_keys="Invitation.created_by_user_id",
+        passive_deletes=True,
     )
     invited_by_user: Mapped["User | None"] = relationship(
         remote_side=[id], foreign_keys=[invited_by_user_id], back_populates="invited_users"

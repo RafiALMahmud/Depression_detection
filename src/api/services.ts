@@ -587,6 +587,12 @@ export interface ReportSubmitPayload {
   recommended_interventions?: string;
 }
 
+export interface ReportListQuery {
+  page?: number;
+  pageSize?: number;
+  departmentId?: number;
+}
+
 export const reportsApi = {
   preview: async (): Promise<ReportPreview> => {
     const response = await apiClient.get<ReportPreview>('/reports/preview');
@@ -596,14 +602,24 @@ export const reportsApi = {
     const response = await apiClient.post<ReportRead>('/reports', payload);
     return response.data;
   },
-  list: async (page = 1, pageSize = 10): Promise<ReportListResponse> => {
+  list: async (query: ReportListQuery = {}): Promise<ReportListResponse> => {
     const response = await apiClient.get<ReportListResponse>('/reports', {
-      params: { page, page_size: pageSize },
+      params: {
+        page: query.page ?? 1,
+        page_size: query.pageSize ?? 10,
+        ...(query.departmentId ? { department_id: query.departmentId } : {}),
+      },
     });
     return response.data;
   },
   get: async (reportId: number): Promise<ReportRead> => {
     const response = await apiClient.get<ReportRead>(`/reports/${reportId}`);
+    return response.data;
+  },
+  downloadPdf: async (reportId: number): Promise<Blob> => {
+    const response = await apiClient.get<Blob>(`/reports/${reportId}/pdf`, {
+      responseType: 'blob',
+    });
     return response.data;
   },
 };
