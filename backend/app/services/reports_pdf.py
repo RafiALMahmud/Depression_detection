@@ -7,6 +7,24 @@ from typing import Any
 
 from app.models.report import Report
 
+PAGE_WIDTH = 11.69
+PAGE_HEIGHT = 8.27
+
+PALETTE = {
+    "navy": "#143250",
+    "green": "#2f8f5b",
+    "cream": "#f5f3eb",
+    "muted": "#5a6f84",
+    "danger": "#bf3f4a",
+    "warning": "#d08d25",
+    "info": "#4f7ca3",
+    "card_border": "#d4dde6",
+    "card_bg": "#ffffff",
+}
+
+MAX_PARAGRAPH_LINES = 14
+TABLE_ROWS_PER_PAGE = 20
+
 
 def _safe_float(value: Any) -> float | None:
     if value is None:
@@ -35,11 +53,81 @@ def _extract_flagged_rows(report: Report) -> list[dict[str, Any]]:
     return result
 
 
-def _paragraph(text: str | None, width: int = 110) -> str:
+def _wrapped_lines(text: str | None, width: int, max_lines: int) -> list[str]:
     cleaned = (text or "").strip()
     if not cleaned:
-        return "Not provided."
-    return "\n".join(textwrap.wrap(cleaned, width=width))
+        return ["Not provided."]
+    wrapped = textwrap.wrap(cleaned, width=width, break_long_words=True, break_on_hyphens=False)
+    if len(wrapped) <= max_lines:
+        return wrapped
+    return [*wrapped[: max_lines - 1], f"{wrapped[max_lines - 1]}..."]
+
+
+def _draw_card(ax: Any, title: str, lines: list[str]) -> None:
+    ax.set_facecolor(PALETTE["card_bg"])
+    for spine in ax.spines.values():
+        spine.set_color(PALETTE["card_border"])
+        spine.set_linewidth(1.0)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+    ax.text(0.04, 0.92, title, fontsize=12.2, fontweight="bold", color=PALETTE["navy"], va="top")
+    ax.plot([0.04, 0.96], [0.865, 0.865], color=PALETTE["card_border"], linewidth=1.0)
+    y = 0.80
+    for line in lines:
+        ax.text(0.04, y, line, fontsize=9.6, color=PALETTE["muted"], va="top")
+        y -= 0.062
+        if y < 0.08:
+            break
+
+
+def _kpi_card(ax: Any, label: str, value: str) -> None:
+    ax.set_facecolor(PALETTE["card_bg"])
+    for spine in ax.spines.values():
+        spine.set_color(PALETTE["card_border"])
+        spine.set_linewidth(1.0)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.text(0.06, 0.72, label, fontsize=10, color=PALETTE["muted"], fontweight="bold")
+
+    cleaned = (value or "-").strip() or "-"
+    if len(cleaned) <= 12:
+        ax.text(0.06, 0.24, cleaned, fontsize=20, color=PALETTE["navy"], fontweight="bold")
+        return
+
+    if len(cleaned) <= 18:
+        ax.text(0.06, 0.28, cleaned, fontsize=15.5, color=PALETTE["navy"], fontweight="bold")
+        return
+
+    wrapped = textwrap.wrap(cleaned, width=16, break_long_words=True, break_on_hyphens=False)
+    if len(wrapped) > 2:
+        wrapped = [wrapped[0], f"{wrapped[1][:15]}..."]
+
+    y = 0.44
+    for line in wrapped:
+        ax.text(0.06, y, line, fontsize=11.2, color=PALETTE["navy"], fontweight="bold", va="top")
+        y -= 0.22
+
+
+def _add_page_header(fig: Any, *, title: str, subtitle: str, meta_line: str) -> None:
+    fig.text(0.05, 0.955, title, fontsize=23, fontweight="bold", color=PALETTE["navy"])
+    fig.text(0.05, 0.927, subtitle, fontsize=10.8, color=PALETTE["muted"])
+    fig.text(0.05, 0.905, meta_line, fontsize=9.5, color=PALETTE["muted"])
+
+    header_rule = fig.add_axes([0.05, 0.892, 0.90, 0.0022])
+    header_rule.set_facecolor(PALETTE["card_border"])
+    header_rule.set_xticks([])
+    header_rule.set_yticks([])
+    for spine in header_rule.spines.values():
+        spine.set_visible(False)
+
+
+def _add_page_footer(fig: Any, page_title: str) -> None:
+    fig.text(0.05, 0.03, f"MindWell | {page_title}", fontsize=9, color=PALETTE["muted"])
 
 
 def _risk_distribution(flagged_rows: list[dict[str, Any]]) -> dict[str, int]:
@@ -56,6 +144,22 @@ def _average(values: list[float | None]) -> float:
     if not filtered:
         return 0.0
     return round(sum(filtered) / len(filtered), 2)
+
+
+def _autopct_for_nonzero(values: list[float]) -> Any:
+    total = sum(values)
+
+    def _inner(percent: float) -> str:
+        if total <= 0:
+            return ""
+        absolute = total * percent / 100.0
+        if absolute < 1:
+            return ""
+        if percent < 1:
+            return ""
+        return f"{percent:.0f}%"
+
+    return _inner
 
 
 def build_department_report_pdf(
@@ -75,6 +179,8 @@ def build_department_report_pdf(
             "PDF export is not available because matplotlib is not installed on the backend."
         ) from exc
 
+    plt.rcParams["font.family"] = "DejaVu Sans"
+
     summary = report.department_summary if isinstance(report.department_summary, dict) else {}
     flagged_rows = _extract_flagged_rows(report)
     submitted_at = _format_datetime(report.submitted_at)
@@ -91,120 +197,162 @@ def build_department_report_pdf(
     flagged_facial = [_safe_float(row.get("facial_score")) for row in flagged_rows]
     flagged_questionnaire = [_safe_float(row.get("questionnaire_score")) for row in flagged_rows]
 
-    palette = {
-        "navy": "#143250",
-        "green": "#2f8f5b",
-        "cream": "#f5f3eb",
-        "muted": "#5a6f84",
-        "danger": "#bf3f4a",
-        "warning": "#d08d25",
-        "info": "#4f7ca3",
-    }
-
     buffer = io.BytesIO()
     with PdfPages(buffer) as pdf:
-        # Page 1: Executive summary + narrative
-        fig = plt.figure(figsize=(11.69, 8.27), facecolor=palette["cream"])
-        fig.text(0.06, 0.93, "MindWell Department Wellness Report", fontsize=24, fontweight="bold", color=palette["navy"])
-        fig.text(
-            0.06,
-            0.895,
-            f"Company: {company_name}    Department: {department_name}    Version: v{report.version}",
-            fontsize=11,
-            color=palette["muted"],
+        # Page 1: structured executive summary
+        fig = plt.figure(figsize=(PAGE_WIDTH, PAGE_HEIGHT), facecolor=PALETTE["cream"])
+        _add_page_header(
+            fig,
+            title="MindWell Department Wellness Report",
+            subtitle=f"{company_name} | {department_name} | Version v{report.version}",
+            meta_line=f"Submitted: {submitted_at}    Generated: {generated_at}    Status: {report.status.title()}",
         )
-        fig.text(
-            0.06,
-            0.872,
-            f"Submitted: {submitted_at}    Generated: {generated_at}    Status: {report.status.title()}",
-            fontsize=10,
-            color=palette["muted"],
-        )
+        _add_page_footer(fig, "Executive Summary")
 
-        summary_rows = [
-            ["Total Employees", str(total_employees)],
-            ["Flagged Employees", str(flagged_count)],
-            ["Compliant Employees", str(compliant_count)],
-            ["Average Composite Score", f"{average_composite_score:.2f}"],
-            ["Report Author", report.manager.full_name if report.manager else "Unknown"],
+        kpi_grid = fig.add_gridspec(
+            1,
+            5,
+            left=0.05,
+            right=0.95,
+            top=0.84,
+            bottom=0.70,
+            wspace=0.03,
+        )
+        kpis = [
+            ("Total Employees", str(total_employees)),
+            ("Flagged", str(flagged_count)),
+            ("Compliant", str(compliant_count)),
+            ("Avg Composite", f"{average_composite_score:.2f}"),
+            ("Report Author", report.manager.full_name if report.manager else "Unknown"),
         ]
-        ax_summary = fig.add_axes([0.06, 0.56, 0.44, 0.25])
-        ax_summary.axis("off")
-        table = ax_summary.table(
-            cellText=summary_rows,
-            colLabels=["Metric", "Value"],
-            loc="center",
-            cellLoc="left",
-            colColours=[palette["navy"], palette["navy"]],
+        for idx, (label, value) in enumerate(kpis):
+            _kpi_card(fig.add_subplot(kpi_grid[0, idx]), label, value)
+
+        snapshot_lines = [
+            f"Company: {company_name}",
+            f"Department: {department_name}",
+            f"Report version: v{report.version}",
+            f"Submitted at: {submitted_at}",
+            f"Generated at: {generated_at}",
+            f"Status: {report.status.title()}",
+            f"Flagged ratio: {flagged_count}/{total_employees}",
+            f"Average score: {average_composite_score:.2f}",
+        ]
+
+        content_grid = fig.add_gridspec(
+            2,
+            2,
+            left=0.05,
+            right=0.95,
+            top=0.66,
+            bottom=0.08,
+            wspace=0.04,
+            hspace=0.08,
         )
-        table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.scale(1, 1.5)
-        for (row, col), cell in table.get_celld().items():
-            if row == 0:
-                cell.set_text_props(color="white", weight="bold")
-            else:
-                cell.set_facecolor("white")
-                if col == 0:
-                    cell.set_text_props(weight="bold", color=palette["navy"])
-                else:
-                    cell.set_text_props(color=palette["muted"])
+        _draw_card(
+            fig.add_subplot(content_grid[0, 0]),
+            "1. Report Snapshot",
+            snapshot_lines,
+        )
+        _draw_card(
+            fig.add_subplot(content_grid[0, 1]),
+            "2. Assessment Summary",
+            _wrapped_lines(report.assessment, width=68, max_lines=MAX_PARAGRAPH_LINES),
+        )
+        _draw_card(
+            fig.add_subplot(content_grid[1, 0]),
+            "3. Observed Behavioural Patterns",
+            _wrapped_lines(report.behavioral_patterns, width=68, max_lines=MAX_PARAGRAPH_LINES),
+        )
+        _draw_card(
+            fig.add_subplot(content_grid[1, 1]),
+            "4. Recommended Interventions",
+            _wrapped_lines(report.recommended_interventions, width=68, max_lines=MAX_PARAGRAPH_LINES),
+        )
 
-        fig.text(0.54, 0.79, "Assessment", fontsize=14, color=palette["navy"], fontweight="bold")
-        fig.text(0.54, 0.64, _paragraph(report.assessment), fontsize=10.5, color=palette["muted"], va="top")
-
-        fig.text(0.06, 0.45, "Observed Behavioural Patterns", fontsize=12.5, color=palette["navy"], fontweight="bold")
-        fig.text(0.06, 0.33, _paragraph(report.behavioral_patterns, width=140), fontsize=10, color=palette["muted"], va="top")
-
-        fig.text(0.06, 0.23, "Recommended Interventions", fontsize=12.5, color=palette["navy"], fontweight="bold")
-        fig.text(0.06, 0.11, _paragraph(report.recommended_interventions, width=140), fontsize=10, color=palette["muted"], va="top")
-
-        pdf.savefig(fig, bbox_inches="tight")
+        pdf.savefig(fig)
         plt.close(fig)
 
-        # Page 2: Graphs
-        fig, axes = plt.subplots(2, 2, figsize=(11.69, 8.27), facecolor=palette["cream"])
-        fig.suptitle("Wellness Distribution and Score Graphs", fontsize=20, fontweight="bold", color=palette["navy"], y=0.98)
+        # Page 2: Charts
+        fig, axes = plt.subplots(2, 2, figsize=(PAGE_WIDTH, PAGE_HEIGHT), facecolor=PALETTE["cream"])
+        _add_page_header(
+            fig,
+            title="Wellness Distribution and Score Graphs",
+            subtitle=f"{company_name} | {department_name}",
+            meta_line=f"Report Version: v{report.version}",
+        )
+        _add_page_footer(fig, "Graphical Insights")
 
         ax = axes[0, 0]
-        composition_labels = ["Flagged", "Compliant", "Other"]
-        composition_values = [flagged_count, compliant_count, remainder_count]
-        if sum(composition_values) == 0:
-            ax.text(0.5, 0.5, "No department composition data available", ha="center", va="center", color=palette["muted"])
+        composition = [
+            ("Flagged", flagged_count, PALETTE["danger"]),
+            ("Compliant", compliant_count, PALETTE["green"]),
+            ("Other", remainder_count, PALETTE["info"]),
+        ]
+        non_zero_composition = [entry for entry in composition if entry[1] > 0]
+
+        if not non_zero_composition:
+            ax.text(
+                0.5,
+                0.5,
+                "No department composition data available",
+                ha="center",
+                va="center",
+                color=PALETTE["muted"],
+            )
             ax.axis("off")
         else:
-            ax.pie(
+            composition_labels = [entry[0] for entry in non_zero_composition]
+            composition_values = [float(entry[1]) for entry in non_zero_composition]
+            composition_colors = [entry[2] for entry in non_zero_composition]
+
+            wedges, _text_labels, auto_texts = ax.pie(
                 composition_values,
-                labels=composition_labels,
-                autopct="%1.0f%%",
-                colors=[palette["danger"], palette["green"], palette["info"]],
+                labels=None,
+                autopct=_autopct_for_nonzero(composition_values),
+                colors=composition_colors,
                 startangle=90,
                 wedgeprops={"edgecolor": "white"},
+                pctdistance=0.62,
             )
             ax.set_title("Employee Composition")
+            ax.legend(
+                wedges,
+                [f"{label} ({int(value)})" for label, value in zip(composition_labels, composition_values)],
+                loc="lower center",
+                bbox_to_anchor=(0.5, -0.13),
+                frameon=False,
+                ncol=min(3, len(composition_labels)),
+                fontsize=9,
+            )
+            for text in auto_texts:
+                text.set_color(PALETTE["navy"])
+                text.set_fontsize(10)
+                text.set_fontweight("bold")
 
         ax = axes[0, 1]
         risk_labels = ["Low", "Moderate", "High", "Severe"]
         risk_values = [risk_counts["low"], risk_counts["moderate"], risk_counts["high"], risk_counts["severe"]]
-        ax.bar(risk_labels, risk_values, color=[palette["info"], palette["warning"], "#ce6a56", palette["danger"]])
+        ax.bar(risk_labels, risk_values, color=[PALETTE["info"], PALETTE["warning"], "#ce6a56", PALETTE["danger"]])
         ax.set_title("Flagged Risk Tier Distribution")
         ax.set_ylabel("Employee Count")
         for idx, value in enumerate(risk_values):
-            ax.text(idx, value + 0.05, str(value), ha="center", va="bottom", color=palette["navy"], fontsize=9)
+            ax.text(idx, value + 0.05, str(value), ha="center", va="bottom", color=PALETTE["navy"], fontsize=9)
 
         ax = axes[1, 0]
-        score_labels = ["Dept Avg Composite", "Flagged Composite Avg", "Flagged Facial Avg", "Flagged Questionnaire Avg"]
+        score_labels = ["Dept Composite", "Flagged Composite", "Flagged Facial", "Flagged Questionnaire"]
         score_values = [
             average_composite_score,
             _average(flagged_composite),
             _average(flagged_facial),
             _average(flagged_questionnaire),
         ]
-        ax.barh(score_labels, score_values, color=[palette["navy"], palette["danger"], palette["green"], palette["info"]])
+        ax.barh(score_labels, score_values, color=[PALETTE["navy"], PALETTE["danger"], PALETTE["green"], PALETTE["info"]])
         ax.set_title("Score Summary")
         ax.set_xlabel("Score")
+        ax.tick_params(axis="y", labelsize=10)
         for idx, value in enumerate(score_values):
-            ax.text(value + 0.3, idx, f"{value:.2f}", va="center", color=palette["navy"], fontsize=9)
+            ax.text(value + 0.3, idx, f"{value:.2f}", va="center", color=PALETTE["navy"], fontsize=9)
 
         ax = axes[1, 1]
         top_flagged = sorted(
@@ -213,12 +361,12 @@ def build_department_report_pdf(
             reverse=True,
         )[:8]
         if not top_flagged:
-            ax.text(0.5, 0.5, "No flagged score data available", ha="center", va="center", color=palette["muted"])
+            ax.text(0.5, 0.5, "No flagged score data available", ha="center", va="center", color=PALETTE["muted"])
             ax.axis("off")
         else:
             names = [str(row.get("anonymized_id", "-")) for row in top_flagged]
             values = [_safe_float(row.get("composite_score")) or 0.0 for row in top_flagged]
-            ax.plot(names, values, marker="o", linewidth=2.2, color=palette["navy"])
+            ax.plot(names, values, marker="o", linewidth=2.2, color=PALETTE["navy"])
             ax.fill_between(names, values, color="#86a8c6", alpha=0.25)
             ax.set_ylim(bottom=0)
             ax.set_title("Top Flagged Composite Scores")
@@ -226,29 +374,21 @@ def build_department_report_pdf(
             ax.tick_params(axis="x", labelrotation=30)
 
         for chart in axes.flat:
-            chart.set_facecolor("white")
+            chart.set_facecolor(PALETTE["card_bg"])
             for spine in chart.spines.values():
-                spine.set_edgecolor("#d2d9e0")
+                spine.set_edgecolor(PALETTE["card_border"])
+            chart.grid(alpha=0.12, axis="y")
 
-        fig.tight_layout(rect=[0, 0, 1, 0.95])
-        pdf.savefig(fig, bbox_inches="tight")
+        fig.subplots_adjust(left=0.12, right=0.95, bottom=0.08, top=0.84, wspace=0.24, hspace=0.32)
+        pdf.savefig(fig)
         plt.close(fig)
 
-        # Page 3: Flagged data table
-        fig = plt.figure(figsize=(11.69, 8.27), facecolor=palette["cream"])
-        fig.text(0.06, 0.93, "Flagged Employee Data Snapshot", fontsize=21, fontweight="bold", color=palette["navy"])
-        fig.text(
-            0.06,
-            0.902,
-            "Anonymized data captured at the time of report submission.",
-            fontsize=10.5,
-            color=palette["muted"],
-        )
-
-        table_rows = []
-        for row in flagged_rows[:15]:
+        # Page 3+: Flagged data table with pagination
+        table_rows: list[list[str]] = []
+        for index, row in enumerate(flagged_rows, start=1):
             table_rows.append(
                 [
+                    str(index),
                     str(row.get("anonymized_id", "-")),
                     str(row.get("threshold_tier", "-")).title(),
                     f"{(_safe_float(row.get('composite_score')) or 0.0):.2f}",
@@ -258,31 +398,63 @@ def build_department_report_pdf(
                 ]
             )
 
-        ax = fig.add_axes([0.06, 0.14, 0.88, 0.72])
-        ax.axis("off")
-        if table_rows:
-            table = ax.table(
-                cellText=table_rows,
-                colLabels=["Anonymized ID", "Risk Tier", "Composite", "Facial", "Questionnaire", "Sessions"],
-                colColours=[palette["navy"]] * 6,
-                cellLoc="center",
-                loc="upper center",
+        if not table_rows:
+            fig = plt.figure(figsize=(PAGE_WIDTH, PAGE_HEIGHT), facecolor=PALETTE["cream"])
+            _add_page_header(
+                fig,
+                title="Flagged Employee Data Snapshot",
+                subtitle="Anonymized data captured at submission time",
+                meta_line=f"Company: {company_name}    Department: {department_name}",
             )
-            table.auto_set_font_size(False)
-            table.set_fontsize(9)
-            table.scale(1, 1.5)
-            for (row, _col), cell in table.get_celld().items():
-                if row == 0:
-                    cell.set_text_props(color="white", weight="bold")
-                else:
-                    cell.set_facecolor("white")
-                    cell.set_text_props(color=palette["muted"])
+            _add_page_footer(fig, "Flagged Data")
+            ax = fig.add_axes([0.05, 0.10, 0.90, 0.75])
+            _draw_card(
+                ax,
+                "No flagged employee rows",
+                ["No High/Severe flagged employee was recorded for this report."],
+            )
+            pdf.savefig(fig)
+            plt.close(fig)
         else:
-            ax.text(0.5, 0.5, "No flagged employees were recorded in this submission.", ha="center", va="center", color=palette["muted"], fontsize=13)
+            total_pages = (len(table_rows) + TABLE_ROWS_PER_PAGE - 1) // TABLE_ROWS_PER_PAGE
+            for page_index in range(total_pages):
+                fig = plt.figure(figsize=(PAGE_WIDTH, PAGE_HEIGHT), facecolor=PALETTE["cream"])
+                _add_page_header(
+                    fig,
+                    title="Flagged Employee Data Snapshot",
+                    subtitle=f"Anonymized data captured at submission time | Page {page_index + 1}/{total_pages}",
+                    meta_line=f"Company: {company_name}    Department: {department_name}",
+                )
+                _add_page_footer(fig, "Flagged Data")
 
-        fig.text(0.06, 0.06, "Generated by MindWell Analytics Engine", fontsize=9.5, color=palette["muted"])
-        pdf.savefig(fig, bbox_inches="tight")
-        plt.close(fig)
+                start = page_index * TABLE_ROWS_PER_PAGE
+                end = start + TABLE_ROWS_PER_PAGE
+                page_rows = table_rows[start:end]
+
+                ax = fig.add_axes([0.05, 0.10, 0.90, 0.75])
+                ax.axis("off")
+                table = ax.table(
+                    cellText=page_rows,
+                    colLabels=["S/N", "Anonymized ID", "Risk Tier", "Composite", "Facial", "Questionnaire", "Sessions"],
+                    colColours=[PALETTE["navy"]] * 7,
+                    colWidths=[0.06, 0.16, 0.13, 0.14, 0.14, 0.18, 0.10],
+                    cellLoc="center",
+                    loc="upper center",
+                )
+                table.auto_set_font_size(False)
+                table.set_fontsize(9)
+                table.scale(1, 1.38)
+                for (row_index, _col), cell in table.get_celld().items():
+                    if row_index == 0:
+                        cell.set_text_props(color="white", weight="bold")
+                    else:
+                        cell.set_facecolor(PALETTE["card_bg"])
+                        cell.set_text_props(color=PALETTE["muted"])
+                        cell.set_edgecolor(PALETTE["card_border"])
+                        cell.set_linewidth(0.8)
+
+                pdf.savefig(fig)
+                plt.close(fig)
 
     buffer.seek(0)
     return buffer.read()
