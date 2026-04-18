@@ -10,6 +10,7 @@ from app.api.routes import (
     employees,
     invitations,
     questionnaire,
+    reports,
     super_admins,
     system_admins,
     vision,
@@ -28,3 +29,4 @@ api_router.include_router(employees.router)
 api_router.include_router(invitations.router)
 api_router.include_router(vision.router)
 api_router.include_router(questionnaire.router)
+api_router.include_router(reports.router)

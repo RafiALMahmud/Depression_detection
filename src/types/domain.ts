@@ -177,6 +177,52 @@ export interface CompanyDepartmentBreakdown {
 
 export type ComplianceStatus = 'compliant' | 'non_compliant' | 'pending';
 
+export interface FlaggedEmployeeEntry {
+  anonymized_id: string;
+  threshold_tier: string;
+  composite_score: number | null;
+  facial_score: number | null;
+  questionnaire_score: number | null;
+  sessions_count: number;
+}
+
+export interface DepartmentReportSummary {
+  total_employees: number;
+  flagged_count: number;
+  compliant_count: number;
+  average_composite_score: number | null;
+}
+
+export interface ReportPreview {
+  department_id: number;
+  company_id: number;
+  department_summary: DepartmentReportSummary;
+  flagged_employees: FlaggedEmployeeEntry[];
+  next_version: number;
+}
+
+export interface ReportRead {
+  id: number;
+  department_id: number;
+  company_id: number;
+  manager_name: string | null;
+  version: number;
+  assessment: string | null;
+  behavioral_patterns: string | null;
+  recommended_interventions: string | null;
+  flagged_employee_count: number;
+  department_summary: DepartmentReportSummary | null;
+  flagged_employees_data: FlaggedEmployeeEntry[] | null;
+  status: string;
+  submitted_at: string;
+  created_at: string;
+}
+
+export interface ReportListResponse {
+  items: ReportRead[];
+  total: number;
+}
+
 export interface EmployeeComplianceEntry {
   employee_id: number;
   full_name: string;

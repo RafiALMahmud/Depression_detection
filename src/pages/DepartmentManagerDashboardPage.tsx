@@ -8,12 +8,14 @@ import {
   dashboardApi,
   employeesApi,
   invitationsApi,
+  reportsApi,
   type EmployeePayload,
   type EmployeeUpdatePayload,
   type InvitationListQuery,
+  type ReportSubmitPayload,
 } from '../api/services';
 import { DataTable } from '../components/dashboard/DataTable';
-import type { EmployeeComplianceEntry } from '../types/domain';
+import type { EmployeeComplianceEntry, FlaggedEmployeeEntry, ReportPreview, ReportRead } from '../types/domain';
 import { useAuth } from '../auth/AuthContext';
 import { AppShell } from '../components/dashboard/AppShell';
 import { EntitySection } from '../components/dashboard/EntitySection';
@@ -95,6 +97,19 @@ export const DepartmentManagerDashboardPage = () => {
   const [complianceData, setComplianceData] = useState<EmployeeComplianceEntry[] | null>(null);
   const [complianceLoading, setComplianceLoading] = useState(false);
   const [complianceError, setComplianceError] = useState<string | null>(null);
+
+  const [reportPreview, setReportPreview] = useState<ReportPreview | null>(null);
+  const [reportPreviewLoading, setReportPreviewLoading] = useState(false);
+  const [reportPreviewError, setReportPreviewError] = useState<string | null>(null);
+  const [reportAssessment, setReportAssessment] = useState('');
+  const [reportBehavior, setReportBehavior] = useState('');
+  const [reportInterventions, setReportInterventions] = useState('');
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportArchive, setReportArchive] = useState<ReportRead[]>([]);
+  const [reportArchiveLoading, setReportArchiveLoading] = useState(false);
+  const [reportView, setReportView] = useState<'builder' | 'archive'>('builder');
+  const [selectedReport, setSelectedReport] = useState<ReportRead | null>(null);
+
   const summaryRunRef = useRef(0);
 
   const allowed = user?.role === 'department_manager';
@@ -263,10 +278,347 @@ export const DepartmentManagerDashboardPage = () => {
     }
   }, [activeSectionId, complianceData, complianceLoading, loadCompliance]);
 
+  const loadReportPreview = useCallback(async () => {
+    setReportPreviewLoading(true);
+    setReportPreviewError(null);
+    try {
+      const data = await reportsApi.preview();
+      setReportPreview(data);
+    } catch (error) {
+      setReportPreviewError(getApiErrorMessage(error, 'Failed to load report preview'));
+    } finally {
+      setReportPreviewLoading(false);
+    }
+  }, []);
+
+  const loadReportArchive = useCallback(async () => {
+    setReportArchiveLoading(true);
+    try {
+      const data = await reportsApi.list();
+      setReportArchive(data.items);
+    } catch {
+      // silently fail — archive is supplementary
+    } finally {
+      setReportArchiveLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSectionId === 'reports' && !reportPreview && !reportPreviewLoading) {
+      void loadReportPreview();
+      void loadReportArchive();
+    }
+  }, [activeSectionId, reportPreview, reportPreviewLoading, loadReportPreview, loadReportArchive]);
+
+  const handleSubmitReport = useCallback(async () => {
+    if (!reportAssessment.trim()) {
+      toast.error('Assessment is required before submitting.');
+      return;
+    }
+    setReportSubmitting(true);
+    try {
+      const payload: ReportSubmitPayload = {
+        assessment: reportAssessment.trim(),
+        behavioral_patterns: reportBehavior.trim(),
+        recommended_interventions: reportInterventions.trim(),
+      };
+      await reportsApi.submit(payload);
+      toast.success('Report submitted successfully.');
+      setReportAssessment('');
+      setReportBehavior('');
+      setReportInterventions('');
+      await loadReportPreview();
+      await loadReportArchive();
+      setReportView('archive');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to submit report'));
+    } finally {
+      setReportSubmitting(false);
+    }
+  }, [reportAssessment, reportBehavior, reportInterventions, loadReportPreview, loadReportArchive]);
+
+  const tierBadge = (tier: string) => {
+    if (tier === 'severe') return <span className="mw-badge mw-badge-danger">Severe</span>;
+    if (tier === 'high') return <span className="mw-badge mw-badge-warning">High</span>;
+    return <span className="mw-badge mw-badge-muted">{tier}</span>;
+  };
+
+  const renderReportsSection = () => {
+    const flaggedColumns = [
+      { key: 'id', title: 'Anonymized ID', render: (e: FlaggedEmployeeEntry) => e.anonymized_id },
+      { key: 'tier', title: 'Risk Tier', render: (e: FlaggedEmployeeEntry) => tierBadge(e.threshold_tier) },
+      { key: 'composite', title: 'Composite Score', render: (e: FlaggedEmployeeEntry) => e.composite_score?.toFixed(1) ?? '-' },
+      { key: 'facial', title: 'Facial Score', render: (e: FlaggedEmployeeEntry) => e.facial_score?.toFixed(1) ?? '-' },
+      { key: 'questionnaire', title: 'Q. Score', render: (e: FlaggedEmployeeEntry) => e.questionnaire_score?.toFixed(1) ?? '-' },
+      { key: 'sessions', title: 'Sessions', render: (e: FlaggedEmployeeEntry) => e.sessions_count },
+    ] satisfies TableColumn<FlaggedEmployeeEntry>[];
+
+    const archiveColumns = [
+      { key: 'version', title: 'Version', render: (r: ReportRead) => <strong>v{r.version}</strong> },
+      { key: 'flagged', title: 'Flagged', render: (r: ReportRead) => r.flagged_employee_count },
+      { key: 'submitted_by', title: 'Submitted By', render: (r: ReportRead) => r.manager_name ?? '-' },
+      { key: 'date', title: 'Submitted', render: (r: ReportRead) => new Date(r.submitted_at).toLocaleDateString() },
+      { key: 'status', title: 'Status', render: (r: ReportRead) => <span className="mw-badge mw-badge-success">{r.status}</span> },
+      {
+        key: 'view',
+        title: '',
+        render: (r: ReportRead) => (
+          <button
+            type="button"
+            className="mw-btn-ghost"
+            style={{ padding: '4px 12px', fontSize: '13px' }}
+            onClick={() => setSelectedReport(selectedReport?.id === r.id ? null : r)}
+          >
+            {selectedReport?.id === r.id ? 'Close' : 'View'}
+          </button>
+        ),
+      },
+    ] satisfies TableColumn<ReportRead>[];
+
+    const selectedFlaggedColumns = [
+      { key: 'id', title: 'Anonymized ID', render: (e: FlaggedEmployeeEntry) => e.anonymized_id },
+      { key: 'tier', title: 'Risk Tier', render: (e: FlaggedEmployeeEntry) => tierBadge(e.threshold_tier) },
+      { key: 'composite', title: 'Composite', render: (e: FlaggedEmployeeEntry) => e.composite_score?.toFixed(1) ?? '-' },
+      { key: 'sessions', title: 'Sessions', render: (e: FlaggedEmployeeEntry) => e.sessions_count },
+    ] satisfies TableColumn<FlaggedEmployeeEntry>[];
+
+    return (
+      <section className="mw-entity-layout">
+        <div className="mw-card mw-entity-header">
+          <div className="mw-entity-header-row">
+            <div>
+              <p className="mw-entity-kicker">Department Manager</p>
+              <h2 className="mw-entity-title">Depression Status Report</h2>
+              <p className="mw-entity-description">
+                Auto-populated with High / Severe flagged employees. Add your written assessment and submit for audit.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+              <button
+                type="button"
+                className={reportView === 'builder' ? 'mw-btn-primary' : 'mw-btn-ghost'}
+                onClick={() => setReportView('builder')}
+              >
+                Report Builder
+              </button>
+              <button
+                type="button"
+                className={reportView === 'archive' ? 'mw-btn-primary' : 'mw-btn-ghost'}
+                onClick={() => { setReportView('archive'); setSelectedReport(null); void loadReportArchive(); }}
+              >
+                Archive
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ── BUILDER ── */}
+        {reportView === 'builder' && (
+          <>
+            {reportPreviewLoading && (
+              <div className="mw-card mw-loading-card">Loading department data…</div>
+            )}
+            {reportPreviewError && !reportPreviewLoading && (
+              <div className="mw-card mw-empty-state">
+                <h3>Could not load report data</h3>
+                <p>{reportPreviewError}</p>
+                <button
+                  type="button"
+                  className="mw-btn-primary"
+                  style={{ marginTop: '16px' }}
+                  onClick={() => { void loadReportPreview(); }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {reportPreview && !reportPreviewLoading && (
+              <>
+                <section className="mw-stat-grid">
+                  <StatsCard label="Next Version" value={reportPreview.next_version} />
+                  <StatsCard label="Total Employees" value={reportPreview.department_summary.total_employees} />
+                  <StatsCard label="High / Severe Flagged" value={reportPreview.department_summary.flagged_count} />
+                  <StatsCard label="Compliant" value={reportPreview.department_summary.compliant_count} />
+                  <StatsCard
+                    label="Avg Composite Score"
+                    value={reportPreview.department_summary.average_composite_score ?? 0}
+                  />
+                </section>
+
+                <article className="mw-card">
+                  <p className="mw-entity-kicker">Auto-populated · Anonymized</p>
+                  <h3>Flagged Employees</h3>
+                  <p className="mw-entity-description" style={{ marginBottom: '16px' }}>
+                    Employee identities are hidden. Only risk tier and scores are included.
+                  </p>
+                  <DataTable<FlaggedEmployeeEntry>
+                    columns={flaggedColumns}
+                    items={reportPreview.flagged_employees}
+                    getRowId={(e) => e.anonymized_id}
+                    emptyMessage="No High or Severe flagged employees this period."
+                  />
+                </article>
+
+                <article className="mw-card mw-info-panel">
+                  <p className="mw-entity-kicker">Manager Input · Required</p>
+                  <h3>Written Assessment</h3>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '16px' }}>
+                    <div>
+                      <label className="mw-field-label">
+                        Assessment&nbsp;<span style={{ color: 'var(--danger)' }}>*</span>
+                      </label>
+                      <textarea
+                        className="mw-input mw-textarea"
+                        rows={5}
+                        placeholder="Describe the overall mental wellness status of the department this period…"
+                        value={reportAssessment}
+                        onChange={(e) => setReportAssessment(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mw-field-label">Observed Behavioural Patterns</label>
+                      <textarea
+                        className="mw-input mw-textarea"
+                        rows={4}
+                        placeholder="Describe any notable behavioural changes or patterns observed among employees…"
+                        value={reportBehavior}
+                        onChange={(e) => setReportBehavior(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mw-field-label">Recommended Interventions</label>
+                      <textarea
+                        className="mw-input mw-textarea"
+                        rows={4}
+                        placeholder="List recommended actions, support resources, or follow-up interventions…"
+                        value={reportInterventions}
+                        onChange={(e) => setReportInterventions(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="mw-info-panel-actions">
+                      <button
+                        type="button"
+                        className="mw-btn-primary"
+                        onClick={() => { void handleSubmitReport(); }}
+                        disabled={reportSubmitting || !reportAssessment.trim()}
+                      >
+                        {reportSubmitting ? 'Submitting…' : 'Submit Report'}
+                      </button>
+                      <button
+                        type="button"
+                        className="mw-btn-ghost"
+                        onClick={() => { void loadReportPreview(); }}
+                        disabled={reportPreviewLoading}
+                      >
+                        Refresh Data
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              </>
+            )}
+          </>
+        )}
+
+        {/* ── ARCHIVE ── */}
+        {reportView === 'archive' && (
+          <>
+            <article className="mw-card">
+              <p className="mw-entity-kicker">Submitted Reports</p>
+              <h3>Report Archive</h3>
+              <p className="mw-entity-description" style={{ marginBottom: '16px' }}>
+                All submitted reports are timestamped and versioned for audit and compliance purposes.
+              </p>
+              {reportArchiveLoading ? (
+                <div className="mw-loading-card">Loading archive…</div>
+              ) : (
+                <DataTable<ReportRead>
+                  columns={archiveColumns}
+                  items={reportArchive}
+                  getRowId={(r) => r.id}
+                  emptyMessage="No reports submitted yet. Use the Report Builder tab to create one."
+                />
+              )}
+            </article>
+
+            {selectedReport && (
+              <article className="mw-card mw-info-panel">
+                <div className="mw-entity-header-row" style={{ marginBottom: '16px' }}>
+                  <div>
+                    <p className="mw-entity-kicker">Report Detail · v{selectedReport.version}</p>
+                    <h3>
+                      Submitted {new Date(selectedReport.submitted_at).toLocaleDateString()} by{' '}
+                      {selectedReport.manager_name ?? 'Unknown'}
+                    </h3>
+                  </div>
+                  <span className="mw-badge mw-badge-success">{selectedReport.status}</span>
+                </div>
+
+                {selectedReport.department_summary && (
+                  <section className="mw-stat-grid" style={{ marginBottom: '20px' }}>
+                    <StatsCard label="Total Employees" value={selectedReport.department_summary.total_employees} />
+                    <StatsCard label="Flagged" value={selectedReport.flagged_employee_count} />
+                    <StatsCard label="Compliant" value={selectedReport.department_summary.compliant_count} />
+                    <StatsCard
+                      label="Avg Composite Score"
+                      value={selectedReport.department_summary.average_composite_score ?? 0}
+                    />
+                  </section>
+                )}
+
+                {selectedReport.flagged_employees_data && selectedReport.flagged_employees_data.length > 0 && (
+                  <div style={{ marginBottom: '20px' }}>
+                    <p className="mw-field-label" style={{ marginBottom: '10px' }}>Flagged Employees (at time of submission)</p>
+                    <DataTable<FlaggedEmployeeEntry>
+                      columns={selectedFlaggedColumns}
+                      items={selectedReport.flagged_employees_data}
+                      getRowId={(e) => e.anonymized_id}
+                      emptyMessage="No flagged employees were recorded."
+                    />
+                  </div>
+                )}
+
+                {selectedReport.assessment && (
+                  <div style={{ marginBottom: '16px' }}>
+                    <p className="mw-field-label">Assessment</p>
+                    <p style={{ color: 'var(--text)', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                      {selectedReport.assessment}
+                    </p>
+                  </div>
+                )}
+                {selectedReport.behavioral_patterns && (
+                  <div style={{ marginBottom: '16px' }}>
+                    <p className="mw-field-label">Observed Behavioural Patterns</p>
+                    <p style={{ color: 'var(--text)', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                      {selectedReport.behavioral_patterns}
+                    </p>
+                  </div>
+                )}
+                {selectedReport.recommended_interventions && (
+                  <div>
+                    <p className="mw-field-label">Recommended Interventions</p>
+                    <p style={{ color: 'var(--text)', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                      {selectedReport.recommended_interventions}
+                    </p>
+                  </div>
+                )}
+              </article>
+            )}
+          </>
+        )}
+      </section>
+    );
+  };
+
   const sections = [
     { id: 'overview', label: 'Overview' },
     { id: 'employees', label: 'Employees' },
     { id: 'compliance', label: 'Compliance' },
+    { id: 'reports', label: 'Reports' },
     { id: 'detection-analytics', label: 'Detection Analytics' },
     { id: 'facial-scores', label: 'Facial Scores' },
     { id: 'questionnaire-scores', label: 'Questionnaire Scores' },
@@ -562,6 +914,10 @@ export const DepartmentManagerDashboardPage = () => {
 
     if (activeSectionId === 'compliance') {
       return renderComplianceSection();
+    }
+
+    if (activeSectionId === 'reports') {
+      return renderReportsSection();
     }
 
     if (activeSectionId === 'employees') {

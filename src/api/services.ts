@@ -15,6 +15,9 @@ import type {
   InvitationListItem,
   LiveEmotionResult,
   PaginatedResponse,
+  ReportPreview,
+  ReportRead,
+  ReportListResponse,
   PaginationMeta,
   SummaryInvitationPreview,
   SummaryUserPreview,
@@ -577,6 +580,33 @@ export interface SubmitAnswerPayload {
   question_id: string;
   answer_index: number;
 }
+
+export interface ReportSubmitPayload {
+  assessment: string;
+  behavioral_patterns?: string;
+  recommended_interventions?: string;
+}
+
+export const reportsApi = {
+  preview: async (): Promise<ReportPreview> => {
+    const response = await apiClient.get<ReportPreview>('/reports/preview');
+    return response.data;
+  },
+  submit: async (payload: ReportSubmitPayload): Promise<ReportRead> => {
+    const response = await apiClient.post<ReportRead>('/reports', payload);
+    return response.data;
+  },
+  list: async (page = 1, pageSize = 10): Promise<ReportListResponse> => {
+    const response = await apiClient.get<ReportListResponse>('/reports', {
+      params: { page, page_size: pageSize },
+    });
+    return response.data;
+  },
+  get: async (reportId: number): Promise<ReportRead> => {
+    const response = await apiClient.get<ReportRead>(`/reports/${reportId}`);
+    return response.data;
+  },
+};
 
 export const questionnaireApi = {
   startSession: async (payload: StartSessionPayload): Promise<StartSessionResponse> => {
