@@ -35,6 +35,8 @@ import type {
   SubmitAnswerResponse,
   SessionDetail,
   SessionListResponse,
+  SymptomFrequency,
+  StreakInfo,
 } from '../types/domain';
 
 export interface ListQuery {
@@ -641,6 +643,14 @@ export const questionnaireApi = {
     const response = await apiClient.get<SessionListResponse>('/questionnaire/sessions', {
       params: { page, page_size: pageSize },
     });
+    return response.data;
+  },
+  symptomFrequency: async (): Promise<SymptomFrequency[]> => {
+    const response = await apiClient.get<SymptomFrequency[]>('/questionnaire/symptom-frequency');
+    return response.data;
+  },
+  streak: async (): Promise<StreakInfo> => {
+    const response = await apiClient.get<StreakInfo>('/questionnaire/streak');
     return response.data;
   },
 };

@@ -327,6 +327,95 @@ def list_sessions(
     }
 
 
+def get_symptom_frequency(db: Session, employee_id: int) -> list[dict]:
+    """Return most-triggered symptom domains across all completed sessions."""
+    from sqlalchemy import func as sa_func
+
+    rows = (
+        db.query(
+            QuestionnaireResponse.domain,
+            sa_func.count(QuestionnaireResponse.id).label("count"),
+            sa_func.avg(QuestionnaireResponse.score).label("avg_score"),
+        )
+        .join(CheckInSession, QuestionnaireResponse.session_id == CheckInSession.id)
+        .filter(
+            CheckInSession.employee_id == employee_id,
+            CheckInSession.status == "completed",
+        )
+        .group_by(QuestionnaireResponse.domain)
+        .order_by(sa_func.count(QuestionnaireResponse.id).desc())
+        .limit(8)
+        .all()
+    )
+
+    return [
+        {"domain": row.domain, "count": int(row.count), "avg_score": round(float(row.avg_score), 2)}
+        for row in rows
+    ]
+
+
+def get_streak_info(db: Session, employee_id: int) -> dict:
+    """Return consecutive week streak, longest streak, and earned badges."""
+    sessions = (
+        db.query(CheckInSession.created_at)
+        .filter(
+            CheckInSession.employee_id == employee_id,
+            CheckInSession.status == "completed",
+        )
+        .order_by(CheckInSession.created_at.asc())
+        .all()
+    )
+
+    if not sessions:
+        return {"current_streak_weeks": 0, "longest_streak_weeks": 0, "badges_earned": []}
+
+    week_set: set[tuple[int, int]] = set()
+    for (ts,) in sessions:
+        cal = ts.isocalendar()
+        week_set.add((cal.year, cal.week))
+
+    sorted_weeks = sorted(week_set)
+
+    def to_abs(year: int, week: int) -> int:
+        return year * 53 + week
+
+    streak_runs: list[int] = []
+    run = 1
+    for i in range(1, len(sorted_weeks)):
+        if to_abs(*sorted_weeks[i]) - to_abs(*sorted_weeks[i - 1]) == 1:
+            run += 1
+        else:
+            streak_runs.append(run)
+            run = 1
+    streak_runs.append(run)
+
+    longest = max(streak_runs)
+
+    now = datetime.now(timezone.utc)
+    now_iso = now.isocalendar()
+    prev_iso = (now - timedelta(weeks=1)).isocalendar()
+    last = sorted_weeks[-1]
+
+    if last in ((now_iso.year, now_iso.week), (prev_iso.year, prev_iso.week)):
+        current_streak = streak_runs[-1]
+    else:
+        current_streak = 0
+
+    badges: list[str] = []
+    if longest >= 4:
+        badges.append("bronze")
+    if longest >= 8:
+        badges.append("silver")
+    if longest >= 12:
+        badges.append("gold")
+
+    return {
+        "current_streak_weeks": current_streak,
+        "longest_streak_weeks": longest,
+        "badges_earned": badges,
+    }
+
+
 def _question_to_dict(question, sequence_order: int, total_estimated: int) -> dict:
     return {
         "id": question.id,

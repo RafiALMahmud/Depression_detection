@@ -85,3 +85,15 @@ class SessionListMeta(BaseModel):
 class SessionListResponse(BaseModel):
     items: list[SessionListItem]
     meta: SessionListMeta
+
+
+class SymptomFrequencyItem(BaseModel):
+    domain: str
+    count: int
+    avg_score: float
+
+
+class StreakInfo(BaseModel):
+    current_streak_weeks: int
+    longest_streak_weeks: int
+    badges_earned: list[str]

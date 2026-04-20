@@ -12,6 +12,8 @@ from app.schemas.questionnaire import (
     StartSessionResponse,
     SubmitAnswerRequest,
     SubmitAnswerResponse,
+    SymptomFrequencyItem,
+    StreakInfo,
 )
 from app.services.questionnaire import session_service
 
@@ -106,3 +108,21 @@ def list_sessions(
     result = session_service.list_sessions(db, employee.id, page=page, page_size=page_size)
 
     return SessionListResponse(**result)
+
+
+@router.get("/symptom-frequency", response_model=list[SymptomFrequencyItem])
+def get_symptom_frequency(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.EMPLOYEE)),
+):
+    employee = _get_employee_or_404(db, current_user)
+    return session_service.get_symptom_frequency(db, employee.id)
+
+
+@router.get("/streak", response_model=StreakInfo)
+def get_streak(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.EMPLOYEE)),
+):
+    employee = _get_employee_or_404(db, current_user)
+    return session_service.get_streak_info(db, employee.id)

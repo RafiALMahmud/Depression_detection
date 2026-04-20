@@ -1,17 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Cell,
+} from 'recharts';
 
-import { visionApi } from '../api/services';
+import { questionnaireApi, visionApi } from '../api/services';
 import { useAuth } from '../auth/AuthContext';
 import { AppShell } from '../components/dashboard/AppShell';
 import { StatsCard } from '../components/dashboard/StatsCard';
 import { QuestionnaireFlow } from '../components/questionnaire/QuestionnaireFlow';
 import type { CompletionSummary } from '../components/questionnaire/QuestionnaireFlow';
-import type { LiveEmotionResult, VisionModelStatus, VisionPredictionResult, ThresholdTier } from '../types/domain';
+import type {
+  LiveEmotionResult,
+  SessionListItem,
+  StreakInfo,
+  SymptomFrequency,
+  VisionModelStatus,
+  VisionPredictionResult,
+} from '../types/domain';
 import { getDashboardPathByRole } from '../utils/roles';
 
-type DashboardSectionId = 'overview' | 'facial-scan' | 'support';
+type DashboardSectionId = 'overview' | 'facial-scan' | 'analytics' | 'support';
 type CheckInPhase = 'scan' | 'questionnaire' | 'results';
 type CameraState = 'idle' | 'requesting' | 'ready' | 'denied' | 'unsupported' | 'error';
 type ScanPhase = 'idle' | 'capturing' | 'uploading' | 'success' | 'error';
@@ -35,21 +54,65 @@ const FACIAL_SCAN_PROFILE: ScanProfile = {
 const DASHBOARD_SECTIONS = [
   { id: 'overview', label: 'Overview' },
   { id: 'facial-scan', label: 'Facial Scan' },
+  { id: 'analytics', label: 'Analytics' },
   { id: 'support', label: 'Support' },
 ] as const;
 
+const TIER_CONFIG: Record<string, { label: string; badge: string; color: string }> = {
+  low: { label: 'Not Stressed', badge: 'mw-badge-success', color: '#3a8f55' },
+  moderate: { label: 'Moderately Stressed', badge: 'mw-badge-warning', color: '#d97706' },
+  high: { label: 'Stressed', badge: 'mw-badge-warning', color: '#ef6c00' },
+  severe: { label: 'Very Stressed', badge: 'mw-badge-danger', color: '#dc2626' },
+};
+
+const WELLNESS_RESOURCES: Record<
+  string,
+  { breathing: string; cbt: string; hotlines: string[] }
+> = {
+  low: {
+    breathing:
+      'Try the 4-7-8 technique: inhale for 4 counts, hold for 7, exhale slowly for 8. Repeat 4 times before sleep.',
+    cbt: 'Gratitude journaling: write 3 specific things you appreciated today. Focus on why they mattered.',
+    hotlines: [],
+  },
+  moderate: {
+    breathing:
+      'Box breathing: inhale 4s → hold 4s → exhale 4s → hold 4s. Repeat 4–6 cycles. Activates the parasympathetic nervous system.',
+    cbt: 'Thought challenging: write the stressful thought, identify the cognitive distortion, then write a balanced reframe.',
+    hotlines: [],
+  },
+  high: {
+    breathing:
+      'Progressive muscle relaxation: starting from your feet, tense each muscle group for 5 seconds then release. Move slowly up to your face.',
+    cbt: 'Use the ABC model — identify the Activating event, the Belief that triggered distress, and the Consequence. Then dispute the belief with evidence.',
+    hotlines: ['Employee Assistance Program (EAP) — speak confidentially with your HR team for a referral to a counsellor.'],
+  },
+  severe: {
+    breathing:
+      'Grounding breath: place one hand on your chest, one on your belly. Breathe in through your nose for 4s (belly rises), out through your mouth for 6s. Repeat until calmer.',
+    cbt: '5-4-3-2-1 grounding: name 5 things you see, 4 you can touch, 3 you hear, 2 you smell, 1 you taste. Brings attention back to the present.',
+    hotlines: [
+      'Crisis Text Line — text HOME to 741741 (24/7, free, confidential).',
+      'Suicide & Crisis Lifeline — call or text 988 (24/7, available in the US).',
+      'Employee Assistance Program (EAP) — contact HR for a confidential referral.',
+    ],
+  },
+};
+
+const BADGE_CONFIG: Record<string, { emoji: string; label: string; description: string }> = {
+  bronze: { emoji: '🥉', label: 'Bronze Streak', description: '4+ consecutive weeks of check-ins' },
+  silver: { emoji: '🥈', label: 'Silver Streak', description: '8+ consecutive weeks of check-ins' },
+  gold: { emoji: '🥇', label: 'Gold Streak', description: '12+ consecutive weeks of check-ins' },
+};
+
 const resolveStatusCode = (error: unknown): number | null => {
-  if (typeof error !== 'object' || error === null || !('response' in error)) {
-    return null;
-  }
+  if (typeof error !== 'object' || error === null || !('response' in error)) return null;
   const response = (error as { response?: { status?: number } }).response;
   return response?.status ?? null;
 };
 
 const resolveApiDetail = (error: unknown): string | null => {
-  if (typeof error !== 'object' || error === null || !('response' in error)) {
-    return null;
-  }
+  if (typeof error !== 'object' || error === null || !('response' in error)) return null;
   const response = (error as { response?: { data?: { detail?: string } } }).response;
   return response?.data?.detail ?? null;
 };
@@ -65,17 +128,10 @@ const resolveVisionErrorMessage = (error: unknown, fallback: string): string => 
   ) {
     return 'Cannot reach the MindWell detection service right now. Check the backend connection and retry.';
   }
-  if (error instanceof Error && error.message.trim()) {
-    return error.message;
-  }
+  if (error instanceof Error && error.message.trim()) return error.message;
   return fallback;
 };
 
-/**
- * Convert the vision prediction into a depression-oriented facial mood score (0-100).
- * Higher scores indicate more depressive indicators (sad, fear, disgust, angry contribute
- * positively; happy contributes negatively; neutral is baseline).
- */
 const computeFacialMoodScore = (result: VisionPredictionResult): number => {
   const weights: Record<string, number> = {
     sad: 1.0,
@@ -159,6 +215,12 @@ export const EmployeeDashboardPage = () => {
   const [checkInPhase, setCheckInPhase] = useState<CheckInPhase>('scan');
   const [completionSummary, setCompletionSummary] = useState<CompletionSummary | null>(null);
 
+  // Analytics state
+  const [sessionHistory, setSessionHistory] = useState<SessionListItem[]>([]);
+  const [sessionHistoryLoading, setSessionHistoryLoading] = useState(false);
+  const [symptomData, setSymptomData] = useState<SymptomFrequency[]>([]);
+  const [streakInfo, setStreakInfo] = useState<StreakInfo | null>(null);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -175,6 +237,32 @@ export const EmployeeDashboardPage = () => {
   const cameraMessage = getCameraMessage(cameraState, cameraDetail);
   const startScanDisabled =
     isScanBusy || modelStatusLoading || Boolean(modelStatusError) || Boolean(modelStatus && !modelStatus.ready);
+
+  // Previous session score for decline detection
+  const prevSessionScore = sessionHistory.length > 0 ? sessionHistory[0].composite_score : null;
+  const declineDelta =
+    completionSummary && prevSessionScore != null
+      ? completionSummary.compositeScore - prevSessionScore
+      : null;
+  const showDeclineAlert = declineDelta !== null && declineDelta > 15;
+
+  const loadAnalyticsData = useCallback(async () => {
+    setSessionHistoryLoading(true);
+    try {
+      const [sessionsRes, symptomsRes, streakRes] = await Promise.all([
+        questionnaireApi.listSessions(1, 50),
+        questionnaireApi.symptomFrequency(),
+        questionnaireApi.streak(),
+      ]);
+      setSessionHistory(sessionsRes.items);
+      setSymptomData(symptomsRes);
+      setStreakInfo(streakRes);
+    } catch {
+      // silently fail — analytics are supplementary
+    } finally {
+      setSessionHistoryLoading(false);
+    }
+  }, []);
 
   const clearTimers = useCallback(() => {
     if (captureIntervalRef.current !== null) {
@@ -207,7 +295,6 @@ export const EmployeeDashboardPage = () => {
     const runId = ++statusRunRef.current;
     setModelStatusLoading(true);
     setModelStatusError(null);
-
     try {
       const response = await visionApi.status();
       if (runId !== statusRunRef.current) return;
@@ -221,9 +308,7 @@ export const EmployeeDashboardPage = () => {
       setModelStatusError(message);
       setModelStatus(null);
     } finally {
-      if (runId === statusRunRef.current) {
-        setModelStatusLoading(false);
-      }
+      if (runId === statusRunRef.current) setModelStatusLoading(false);
     }
   }, []);
 
@@ -245,11 +330,7 @@ export const EmployeeDashboardPage = () => {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'user',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       });
 
@@ -293,14 +374,11 @@ export const EmployeeDashboardPage = () => {
 
   const ensurePreviewReady = useCallback(async (): Promise<boolean> => {
     const deadline = Date.now() + 8_000;
-
     while (Date.now() < deadline) {
       const video = videoRef.current;
       const stream = mediaStreamRef.current;
       if (video && stream) {
-        if (video.srcObject !== stream) {
-          video.srcObject = stream;
-        }
+        if (video.srcObject !== stream) video.srcObject = stream;
         await video.play().catch(() => undefined);
         if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 1 && video.videoHeight > 1) {
           return true;
@@ -308,27 +386,20 @@ export const EmployeeDashboardPage = () => {
       }
       await sleep(120);
     }
-
     return false;
   }, []);
 
   const captureFrame = useCallback(async (): Promise<Blob> => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas) {
-      throw new Error('Camera preview is not ready yet. Re-open the webcam and retry.');
-    }
-    if (video.videoWidth < 2 || video.videoHeight < 2) {
+    if (!video || !canvas) throw new Error('Camera preview is not ready yet. Re-open the webcam and retry.');
+    if (video.videoWidth < 2 || video.videoHeight < 2)
       throw new Error('MindWell is still warming up the camera preview. Please retry in a moment.');
-    }
 
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-
     const context = canvas.getContext('2d');
-    if (!context) {
-      throw new Error('MindWell could not prepare the webcam frame for upload.');
-    }
+    if (!context) throw new Error('MindWell could not prepare the webcam frame for upload.');
 
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
@@ -355,30 +426,22 @@ export const EmployeeDashboardPage = () => {
       try {
         const response = await visionApi.predict(frames, 3);
         if (runId !== scanRunRef.current) return;
-
         setScanResult(response);
         setScanError(null);
         setScanPhase('success');
         toast.success('Facial scan completed successfully.');
       } catch (error) {
         if (runId !== scanRunRef.current) return;
-
         const message = resolveVisionErrorMessage(
           error,
           'MindWell could not finish the facial scan. Please retry after checking camera and model readiness.',
         );
         setScanPhase('error');
         setScanError(message);
-
-        if (resolveStatusCode(error) === 503) {
-          void loadModelStatus();
-        }
-
+        if (resolveStatusCode(error) === 503) void loadModelStatus();
         toast.error(message);
       } finally {
-        if (runId === scanRunRef.current) {
-          detachCamera('idle');
-        }
+        if (runId === scanRunRef.current) detachCamera('idle');
       }
     },
     [detachCamera, loadModelStatus],
@@ -395,9 +458,7 @@ export const EmployeeDashboardPage = () => {
       setCapturedFrameCount(0);
       setCountdownSeconds(0);
       setLiveEmotion(null);
-      if (announce) {
-        toast.info('Facial scan stopped.');
-      }
+      if (announce) toast.info('Facial scan stopped.');
     },
     [clearTimers, detachCamera],
   );
@@ -407,18 +468,15 @@ export const EmployeeDashboardPage = () => {
       toast.info('MindWell is still checking model readiness. Please wait a moment.');
       return;
     }
-
     if (modelStatusError) {
       setScanPhase('error');
       setScanError(modelStatusError);
       toast.error(modelStatusError);
       return;
     }
-
     if (!modelStatus?.ready) {
       const message =
-        modelStatus?.message ??
-        'The facial detection model is not ready yet. Please place the checkpoint and retry readiness.';
+        modelStatus?.message ?? 'The facial detection model is not ready yet. Please place the checkpoint and retry readiness.';
       setScanPhase('error');
       setScanError(message);
       toast.error(message);
@@ -427,8 +485,7 @@ export const EmployeeDashboardPage = () => {
 
     const cameraStartResult = await startCamera();
     if (!cameraStartResult.ready) {
-      const permissionMessage =
-        cameraStartResult.message ?? 'MindWell could not access the webcam. Please retry the scan.';
+      const permissionMessage = cameraStartResult.message ?? 'MindWell could not access the webcam. Please retry the scan.';
       setScanPhase('error');
       setScanError(permissionMessage);
       toast.error(permissionMessage);
@@ -476,28 +533,19 @@ export const EmployeeDashboardPage = () => {
     const captureOnce = async () => {
       if (runId !== scanRunRef.current || captureInProgressRef.current) return;
       captureInProgressRef.current = true;
-
       try {
         const frame = await captureFrame();
         if (runId !== scanRunRef.current) return;
-
         activeFramesRef.current = [...activeFramesRef.current, frame];
         setCapturedFrameCount(activeFramesRef.current.length);
-
         visionApi.predictFrame(frame).then((result) => {
           if (runId === scanRunRef.current) setLiveEmotion(result);
         }).catch(() => undefined);
-
-        if (activeFramesRef.current.length >= profile.frameCount) {
-          finalizeCapture();
-        }
+        if (activeFramesRef.current.length >= profile.frameCount) finalizeCapture();
       } catch (error) {
         if (runId !== scanRunRef.current) return;
         const message = error instanceof Error ? error.message : 'MindWell could not capture the webcam frame.';
-        if (isTransientCaptureError(message)) {
-          return;
-        }
-
+        if (isTransientCaptureError(message)) return;
         const normalizedMessage = `${message} Please retry the scan.`;
         setScanPhase('error');
         setScanError(normalizedMessage);
@@ -519,9 +567,7 @@ export const EmployeeDashboardPage = () => {
     countdownIntervalRef.current = window.setInterval(() => {
       const nextSeconds = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
       setCountdownSeconds(nextSeconds);
-      if (nextSeconds === 0) {
-        finalizeCapture();
-      }
+      if (nextSeconds === 0) finalizeCapture();
     }, 250);
   }, [
     captureFrame,
@@ -537,22 +583,25 @@ export const EmployeeDashboardPage = () => {
   ]);
 
   useEffect(() => {
-    if (user && user.role !== 'employee') {
-      navigate(getDashboardPathByRole(user.role), { replace: true });
-    }
+    if (user && user.role !== 'employee') navigate(getDashboardPathByRole(user.role), { replace: true });
   }, [navigate, user]);
 
   useEffect(() => {
     if (!allowed) return;
     void loadModelStatus();
-  }, [allowed, loadModelStatus]);
+    void loadAnalyticsData();
+  }, [allowed, loadModelStatus, loadAnalyticsData]);
 
   useEffect(() => {
     if (activeSectionId === 'facial-scan') return;
-    if (mediaStreamRef.current || isScanBusy) {
-      stopScan(false);
-    }
+    if (mediaStreamRef.current || isScanBusy) stopScan(false);
   }, [activeSectionId, isScanBusy, stopScan]);
+
+  useEffect(() => {
+    if (activeSectionId === 'analytics' && sessionHistory.length === 0 && !sessionHistoryLoading) {
+      void loadAnalyticsData();
+    }
+  }, [activeSectionId, sessionHistory.length, sessionHistoryLoading, loadAnalyticsData]);
 
   useEffect(() => {
     return () => {
@@ -572,15 +621,55 @@ export const EmployeeDashboardPage = () => {
   if (!user) return <Navigate to="/sign-in" replace />;
   if (!allowed) return <Navigate to={getDashboardPathByRole(user.role)} replace />;
 
+  // ---------- helpers ----------
+
+  const tierConfig = (tier: string | null | undefined) =>
+    TIER_CONFIG[tier ?? 'low'] ?? TIER_CONFIG.low;
+
+  const renderStreakBadges = (streak: StreakInfo) => {
+    if (streak.badges_earned.length === 0) return null;
+    return (
+      <div className="mw-streak-badges">
+        {streak.badges_earned.map((badge) => {
+          const cfg = BADGE_CONFIG[badge];
+          if (!cfg) return null;
+          return (
+            <div key={badge} className="mw-streak-badge" title={cfg.description}>
+              <span className="mw-streak-badge-emoji">{cfg.emoji}</span>
+              <div>
+                <p className="mw-streak-badge-label">{cfg.label}</p>
+                <p className="mw-streak-badge-desc">{cfg.description}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ---------- section renderers ----------
+
   const renderOverview = () => {
+    const completedSessions = sessionHistory.filter((s) => s.status === 'completed');
+    const latestSession = completedSessions[0] ?? null;
+
     return (
       <section className="mw-entity-layout">
+        {/* Streak badges */}
+        {streakInfo && streakInfo.badges_earned.length > 0 && (
+          <div className="mw-card" style={{ padding: '16px 20px' }}>
+            <p className="mw-entity-kicker">Wellness Achievement</p>
+            <h3 style={{ marginBottom: '12px' }}>Check-In Streak Badges</h3>
+            {renderStreakBadges(streakInfo)}
+          </div>
+        )}
+
         <section className="mw-stat-grid">
-          <StatsCard label="Scan Duration" value={30} />
-          <StatsCard label="Frames Captured" value={FACIAL_SCAN_PROFILE.frameCount} />
-          <StatsCard label="Capture Interval" value={5} />
-          <StatsCard label="Top Scores Shown" value={3} />
-          <StatsCard label="Backend Frame Limit" value={modelStatus?.max_frames_per_request ?? 60} />
+          <StatsCard label="Sessions Completed" value={completedSessions.length} />
+          <StatsCard label="Current Streak (weeks)" value={streakInfo?.current_streak_weeks ?? 0} />
+          <StatsCard label="Longest Streak (weeks)" value={streakInfo?.longest_streak_weeks ?? 0} />
+          <StatsCard label="Scan Duration (s)" value={30} />
+          <StatsCard label="Model Frame Limit" value={modelStatus?.max_frames_per_request ?? 60} />
         </section>
 
         <div className="mw-panel-grid">
@@ -589,24 +678,14 @@ export const EmployeeDashboardPage = () => {
             <h3>30-second facial check-in</h3>
             <p>
               Start a fixed 30-second webcam scan, let MindWell sample secure frames across that window, and receive
-              the model result in a clean score summary.
+              your composite stress score immediately after the adaptive questionnaire.
             </p>
             <div className="mw-info-panel-actions">
-              <button
-                type="button"
-                className="mw-btn-primary"
-                onClick={() => setActiveSectionId('facial-scan')}
-              >
-                Open Facial Scan
+              <button type="button" className="mw-btn-primary" onClick={() => setActiveSectionId('facial-scan')}>
+                Start Check-In
               </button>
-              <button
-                type="button"
-                className="mw-btn-ghost"
-                onClick={() => {
-                  void loadModelStatus();
-                }}
-              >
-                Refresh Model Status
+              <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('analytics')}>
+                View Analytics
               </button>
             </div>
           </article>
@@ -614,23 +693,39 @@ export const EmployeeDashboardPage = () => {
           <article className="mw-card mw-info-panel">
             <p className="mw-entity-kicker">Model Readiness</p>
             <h3>{modelStatus?.ready ? 'Detection model ready' : 'Detection model needs attention'}</h3>
-            <p>{modelStatusLoading ? 'Checking readiness now...' : modelStatus?.message ?? modelStatusError}</p>
-            {modelStatus ? (
+            <p>{modelStatusLoading ? 'Checking readiness now...' : (modelStatus?.message ?? modelStatusError)}</p>
+            {modelStatus && (
               <div className="mw-inline-summary">
                 <span className={`mw-badge ${modelStatus.ready ? 'mw-badge-success' : 'mw-badge-warning'}`}>
                   {modelStatus.ready ? 'Ready' : 'Not Ready'}
                 </span>
                 <span className="mw-helper-text">Architecture: {modelStatus.architecture}</span>
               </div>
-            ) : null}
+            )}
           </article>
+
+          {latestSession && (
+            <article className="mw-card mw-info-panel">
+              <p className="mw-entity-kicker">Most Recent Session</p>
+              <h3>Last Check-In</h3>
+              <p>{latestSession.created_at ? new Date(latestSession.created_at).toLocaleDateString() : '—'}</p>
+              <div className="mw-inline-summary" style={{ marginTop: '8px' }}>
+                <span className={`mw-badge ${tierConfig(latestSession.threshold_tier).badge}`}>
+                  {tierConfig(latestSession.threshold_tier).label}
+                </span>
+                {latestSession.composite_score != null && (
+                  <span className="mw-helper-text">Score: {Math.round(latestSession.composite_score)}</span>
+                )}
+              </div>
+            </article>
+          )}
 
           <article className="mw-card mw-info-panel">
             <p className="mw-entity-kicker">Privacy</p>
             <h3>Preview stays local until scan completes</h3>
             <p>
-              The camera remains off until you start. During a scan, MindWell captures a limited set of JPEG frames,
-              sends them to the protected employee-only vision endpoint, and stops the camera when the flow finishes.
+              The camera stays off until you start. MindWell captures a limited set of JPEG frames, sends them to the
+              protected employee-only vision endpoint, and stops the camera when the flow finishes.
             </p>
           </article>
         </div>
@@ -638,10 +733,14 @@ export const EmployeeDashboardPage = () => {
     );
   };
 
-  const handleQuestionnaireComplete = useCallback((summary: CompletionSummary) => {
-    setCompletionSummary(summary);
-    setCheckInPhase('results');
-  }, []);
+  const handleQuestionnaireComplete = useCallback(
+    (summary: CompletionSummary) => {
+      setCompletionSummary(summary);
+      setCheckInPhase('results');
+      void loadAnalyticsData();
+    },
+    [loadAnalyticsData],
+  );
 
   const handleQuestionnaireCancel = useCallback(() => {
     setCheckInPhase('scan');
@@ -653,11 +752,11 @@ export const EmployeeDashboardPage = () => {
     setScanPhase('idle');
     setCheckInPhase('scan');
     setCompletionSummary(null);
+    setActiveSectionId('overview');
   }, []);
 
   const renderQuestionnaireSection = () => {
     if (!scanResult) return null;
-
     return (
       <section className="mw-entity-layout">
         <div className="mw-card mw-entity-header">
@@ -666,14 +765,13 @@ export const EmployeeDashboardPage = () => {
               <p className="mw-entity-kicker">Step 2 of 2</p>
               <h2 className="mw-entity-title">Adaptive Questionnaire</h2>
               <p className="mw-entity-description">
-                Answer 5–10 questions adapted to your responses. This combines with your facial scan to compute
-                your Composite Stress Score.
+                Answer 5–10 questions adapted to your responses. This combines with your facial scan to compute your
+                Composite Stress Score.
               </p>
             </div>
             <span className="mw-badge mw-badge-info">PHQ-9 Inspired</span>
           </div>
         </div>
-
         <QuestionnaireFlow
           facialScanResult={scanResult}
           facialScore={computeFacialMoodScore(scanResult)}
@@ -687,27 +785,46 @@ export const EmployeeDashboardPage = () => {
   const renderResultsSection = () => {
     if (!completionSummary) return null;
 
-    const tierColors: Record<string, { label: string; badge: string }> = {
-      low: { label: 'Not Stressed', badge: 'mw-badge-success' },
-      moderate: { label: 'Moderately Stressed', badge: 'mw-badge-warning' },
-      high: { label: 'Stressed', badge: 'mw-badge-warning' },
-      severe: { label: 'Very Stressed', badge: 'mw-badge-danger' },
-    };
+    const tier = completionSummary.thresholdTier;
+    const cfg = tierConfig(tier);
+    const resources = WELLNESS_RESOURCES[tier] ?? WELLNESS_RESOURCES.low;
 
-    const tierInfo = tierColors[completionSummary.thresholdTier] ?? tierColors.low;
+    const trendDelta = declineDelta;
+    const trendLabel =
+      trendDelta == null
+        ? null
+        : trendDelta > 0
+          ? `↑ ${trendDelta.toFixed(1)} pts vs last session`
+          : trendDelta < 0
+            ? `↓ ${Math.abs(trendDelta).toFixed(1)} pts vs last session`
+            : 'No change vs last session';
 
     return (
       <section className="mw-entity-layout">
+        {/* Decline alert */}
+        {showDeclineAlert && (
+          <div className="mw-decline-alert">
+            <div className="mw-decline-alert-icon">⚠</div>
+            <div>
+              <strong>Significant stress increase detected</strong>
+              <p>
+                Your composite score increased by {declineDelta?.toFixed(1)} points compared to your previous session.
+                Please review the wellness resources below and consider reaching out for support.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="mw-card mw-entity-header">
           <div className="mw-entity-header-row">
             <div>
               <p className="mw-entity-kicker">Check-In Complete</p>
-              <h2 className="mw-entity-title">Session Results</h2>
+              <h2 className="mw-entity-title">Session Feedback</h2>
               <p className="mw-entity-description">
-                Your check-in session has been saved. Here is your composite stress screening result.
+                Your check-in has been saved privately. Here is your personal feedback summary.
               </p>
             </div>
-            <span className={`mw-badge ${tierInfo.badge}`}>{tierInfo.label}</span>
+            <span className={`mw-badge ${cfg.badge}`}>{cfg.label}</span>
           </div>
         </div>
 
@@ -718,23 +835,72 @@ export const EmployeeDashboardPage = () => {
         </section>
 
         <div className="mw-panel-grid">
+          {/* Trend delta */}
           <article className="mw-card mw-info-panel">
-            <p className="mw-entity-kicker">What&apos;s Next</p>
-            <h3>Your session is recorded</h3>
-            <p>
-              This session has been stored in your private stress check-in log. You can view your session
-              history and trends from the Overview section.
-            </p>
-            <div className="mw-info-panel-actions">
-              <button
-                type="button"
-                className="mw-btn-primary"
-                onClick={handleStartNewCheckIn}
+            <p className="mw-entity-kicker">Score Trend</p>
+            <h3>Compared to last session</h3>
+            {trendLabel ? (
+              <p
+                style={{
+                  fontSize: '20px',
+                  fontWeight: 700,
+                  color: trendDelta != null && trendDelta > 0 ? 'var(--danger)' : 'var(--green-500)',
+                  marginTop: '8px',
+                }}
               >
-                Back to Dashboard
+                {trendLabel}
+              </p>
+            ) : (
+              <p style={{ marginTop: '8px', color: 'var(--text-muted)' }}>This is your first session — no comparison available yet.</p>
+            )}
+            <div className="mw-info-panel-actions">
+              <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('analytics')}>
+                View All Sessions
               </button>
             </div>
           </article>
+
+          {/* Wellness resources */}
+          <article className="mw-card mw-info-panel">
+            <p className="mw-entity-kicker">Breathing Exercise · {cfg.label}</p>
+            <h3>Recommended Technique</h3>
+            <p>{resources.breathing}</p>
+          </article>
+
+          <article className="mw-card mw-info-panel">
+            <p className="mw-entity-kicker">CBT Technique · {cfg.label}</p>
+            <h3>Cognitive Exercise</h3>
+            <p>{resources.cbt}</p>
+          </article>
+
+          {resources.hotlines.length > 0 && (
+            <article className="mw-card mw-info-panel" style={{ borderLeft: '4px solid var(--danger)' }}>
+              <p className="mw-entity-kicker">Support Lines</p>
+              <h3>Crisis & Support Resources</h3>
+              <ul style={{ marginTop: '8px', paddingLeft: '16px', lineHeight: '1.8' }}>
+                {resources.hotlines.map((line) => (
+                  <li key={line} style={{ color: 'var(--text)' }}>{line}</li>
+                ))}
+              </ul>
+            </article>
+          )}
+        </div>
+
+        <div className="mw-card mw-info-panel">
+          <p className="mw-entity-kicker">What&apos;s Next</p>
+          <h3>Your session is saved</h3>
+          <p>
+            This session has been stored privately in your check-in log. You can view your score trend and symptom
+            history in Analytics.
+          </p>
+          <div className="mw-info-panel-actions">
+            <button type="button" className="mw-btn-primary" onClick={handleStartNewCheckIn}>
+              Back to Dashboard
+            </button>
+            <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('analytics')}>
+              Open Analytics
+            </button>
+          </div>
         </div>
       </section>
     );
@@ -836,9 +1002,7 @@ export const EmployeeDashboardPage = () => {
               <button
                 type="button"
                 className="mw-btn-primary mw-scan-start-button"
-                onClick={() => {
-                  void startScan();
-                }}
+                onClick={() => { void startScan(); }}
                 disabled={startScanDisabled}
               >
                 {isScanBusy
@@ -860,9 +1024,7 @@ export const EmployeeDashboardPage = () => {
               <button
                 type="button"
                 className="mw-btn-ghost"
-                onClick={() => {
-                  void loadModelStatus();
-                }}
+                onClick={() => { void loadModelStatus(); }}
                 disabled={modelStatusLoading || isScanBusy}
               >
                 Recheck Model
@@ -876,9 +1038,7 @@ export const EmployeeDashboardPage = () => {
                 <p className="mw-entity-kicker">Returned Score</p>
                 <h3>Facial score summary</h3>
               </div>
-              {scanResult ? (
-                <span className="mw-badge mw-badge-info">{scanResult.frame_count} frames analyzed</span>
-              ) : null}
+              {scanResult && <span className="mw-badge mw-badge-info">{scanResult.frame_count} frames analyzed</span>}
             </div>
 
             {modelStatusLoading ? (
@@ -943,18 +1103,14 @@ export const EmployeeDashboardPage = () => {
                   <button
                     type="button"
                     className="mw-btn-primary"
-                    onClick={() => {
-                      setCheckInPhase('questionnaire');
-                    }}
+                    onClick={() => { setCheckInPhase('questionnaire'); }}
                   >
                     Continue to Questionnaire
                   </button>
                   <button
                     type="button"
                     className="mw-btn-ghost"
-                    onClick={() => {
-                      void startScan();
-                    }}
+                    onClick={() => { void startScan(); }}
                   >
                     Retry Scan
                   </button>
@@ -975,54 +1131,334 @@ export const EmployeeDashboardPage = () => {
     );
   };
 
-  const renderSupportSection = () => {
+  const renderAnalyticsSection = () => {
+    const completedSessions = sessionHistory
+      .filter((s) => s.status === 'completed' && s.composite_score != null)
+      .slice()
+      .reverse();
+
+    const chartData = completedSessions.map((s, i) => ({
+      index: i + 1,
+      date: s.created_at ? new Date(s.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : `#${i + 1}`,
+      composite: Math.round(s.composite_score ?? 0),
+      tier: s.threshold_tier ?? 'low',
+    }));
+
+    // Bar chart: gradient fill from most → least triggered
+    const barColors = ['#dc2626', '#ef6c00', '#d97706', '#3a8f55', '#2d7a47', '#256040', '#1d4d34', '#163b27'];
+
+    // Calendar heatmap — last 16 weeks
+    const heatmapMap = new Map<string, string>();
+    for (const s of sessionHistory.filter((s) => s.status === 'completed' && s.created_at)) {
+      const key = new Date(s.created_at!).toISOString().slice(0, 10);
+      heatmapMap.set(key, s.threshold_tier ?? 'low');
+    }
+
+    const tierColor = (tier: string) => TIER_CONFIG[tier]?.color ?? '#ccc';
+
+    const dayMs = 86_400_000;
+    const today = new Date();
+    const startDow = today.getDay();
+    const alignedEnd = new Date(today.getTime() + ((7 - startDow) % 7) * dayMs); // next Sunday
+    const alignedStart = new Date(alignedEnd.getTime() - 16 * 7 * dayMs);
+
+    const weeks: Array<{ monthLabel: string | null; days: Array<{ date: string; tier: string | null }> }> = [];
+    for (let w = 0; w < 16; w++) {
+      const days: Array<{ date: string; tier: string | null }> = [];
+      let monthLabel: string | null = null;
+      for (let d = 0; d < 7; d++) {
+        const day = new Date(alignedStart.getTime() + (w * 7 + d) * dayMs);
+        const key = day.toISOString().slice(0, 10);
+        if (d === 0) {
+          monthLabel = day.toLocaleDateString('en-GB', { month: 'short' });
+        }
+        days.push({ date: key, tier: heatmapMap.get(key) ?? null });
+      }
+      weeks.push({ monthLabel, days });
+    }
+
     return (
       <section className="mw-entity-layout">
-        <div className="mw-panel-grid">
-          <article className="mw-card mw-info-panel">
-            <p className="mw-entity-kicker">Support</p>
-            <h3>What happens during a scan</h3>
-            <p>
-              MindWell captures a limited set of webcam frames, sends them to the employee-only backend vision route,
-              and returns the model result as a clean mood score summary after the 30-second scan ends. The preview
-              shuts off once the scan is done or stopped.
-            </p>
-          </article>
-
-          <article className="mw-card mw-info-panel">
-            <p className="mw-entity-kicker">If permission is denied</p>
-            <h3>How to recover</h3>
-            <p>
-              Open your browser site settings, allow camera access for this MindWell URL, then return to the Facial
-              Scan section and retry. The page will stay stable even if the browser refuses access.
-            </p>
-          </article>
-
-          <article className="mw-card mw-info-panel">
-            <p className="mw-entity-kicker">Model readiness</p>
-            <h3>Exact backend message</h3>
-            <p>{modelStatus?.message ?? modelStatusError ?? 'No readiness message available yet.'}</p>
-          </article>
+        <div className="mw-card mw-entity-header">
+          <div className="mw-entity-header-row">
+            <div>
+              <p className="mw-entity-kicker">Personal Analytics</p>
+              <h2 className="mw-entity-title">Your Wellness Trends</h2>
+              <p className="mw-entity-description">
+                All data is private to your account. Charts update after every completed check-in session.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="mw-btn-ghost"
+              onClick={() => { void loadAnalyticsData(); }}
+              disabled={sessionHistoryLoading}
+            >
+              {sessionHistoryLoading ? 'Loading…' : 'Refresh'}
+            </button>
+          </div>
         </div>
+
+        {sessionHistoryLoading && <div className="mw-card mw-loading-card">Loading analytics…</div>}
+
+        {!sessionHistoryLoading && completedSessions.length === 0 && (
+          <div className="mw-card mw-empty-state">
+            <h3>No sessions yet</h3>
+            <p>Complete your first check-in to see your trends here.</p>
+            <button
+              type="button"
+              className="mw-btn-primary"
+              style={{ marginTop: '16px' }}
+              onClick={() => setActiveSectionId('facial-scan')}
+            >
+              Start Check-In
+            </button>
+          </div>
+        )}
+
+        {!sessionHistoryLoading && completedSessions.length > 0 && (
+          <>
+            {/* Summary stats row */}
+            <section className="mw-stat-grid">
+              <StatsCard label="Sessions Completed" value={completedSessions.length} />
+              <StatsCard label="Current Streak (wks)" value={streakInfo?.current_streak_weeks ?? 0} />
+              <StatsCard label="Longest Streak (wks)" value={streakInfo?.longest_streak_weeks ?? 0} />
+              <StatsCard
+                label="Latest Score"
+                value={completedSessions[completedSessions.length - 1]?.composite_score != null ? Math.round(completedSessions[completedSessions.length - 1].composite_score!) : 0}
+              />
+              <StatsCard label="Badges Earned" value={streakInfo?.badges_earned.length ?? 0} />
+            </section>
+
+            {/* Line chart — full width */}
+            <article className="mw-card">
+              <p className="mw-entity-kicker">Score History</p>
+              <h3>Composite Score Over Time</h3>
+              <p className="mw-entity-description" style={{ marginBottom: '16px' }}>
+                Lower = less stress. Each point is one completed check-in session.
+              </p>
+              <div style={{ height: 260 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 8, right: 20, left: 0, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,43,60,0.07)" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={36} tickFormatter={(v) => `${v}`} />
+                    <Tooltip
+                      formatter={(value: number) => [`${value}`, 'Composite Score']}
+                      contentStyle={{ fontSize: 13, borderRadius: 10, border: '1px solid rgba(26,43,60,0.1)' }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="composite"
+                      stroke="#3a8f55"
+                      strokeWidth={2.5}
+                      dot={(props) => {
+                        const { cx, cy, payload } = props as { cx: number; cy: number; payload: { tier: string } };
+                        return (
+                          <circle
+                            key={`dot-${cx}-${cy}`}
+                            cx={cx}
+                            cy={cy}
+                            r={5}
+                            fill={tierColor(payload.tier)}
+                            stroke="#fff"
+                            strokeWidth={2}
+                          />
+                        );
+                      }}
+                      activeDot={{ r: 7, stroke: '#fff', strokeWidth: 2 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="mw-heatmap-legend" style={{ marginTop: '10px' }}>
+                {Object.entries(TIER_CONFIG).map(([key, cfg]) => (
+                  <span key={key} className="mw-heatmap-legend-item">
+                    <span className="mw-heatmap-legend-dot" style={{ backgroundColor: cfg.color }} />
+                    {cfg.label}
+                  </span>
+                ))}
+              </div>
+            </article>
+
+            {/* Two-column: heatmap + bar chart */}
+            <div className="mw-analytics-grid">
+              {/* Calendar heatmap */}
+              <article className="mw-card">
+                <p className="mw-entity-kicker">Check-In Calendar</p>
+                <h3>16-Week Heatmap</h3>
+                <p className="mw-entity-description" style={{ marginBottom: '14px' }}>
+                  Each cell is one day. Color shows the stress tier of that session.
+                </p>
+                <div className="mw-heatmap">
+                  <div className="mw-heatmap-months">
+                    {weeks.map((week, wi) => (
+                      <div key={wi} className="mw-heatmap-month-label">
+                        {week.monthLabel !== weeks[wi - 1]?.monthLabel ? week.monthLabel : ''}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mw-heatmap-grid">
+                    {weeks.map((week, wi) => (
+                      <div key={wi} className="mw-heatmap-week">
+                        {week.days.map((day) => (
+                          <div
+                            key={day.date}
+                            className="mw-heatmap-cell"
+                            title={day.tier ? `${day.date} — ${tierConfig(day.tier).label}` : day.date}
+                            style={{ backgroundColor: day.tier ? tierColor(day.tier) : 'rgba(26,43,60,0.08)' }}
+                          />
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mw-heatmap-legend" style={{ marginTop: '10px' }}>
+                    <span className="mw-heatmap-legend-item">
+                      <span className="mw-heatmap-legend-dot" style={{ backgroundColor: 'rgba(26,43,60,0.08)' }} />
+                      No check-in
+                    </span>
+                    {Object.entries(TIER_CONFIG).map(([key, cfg]) => (
+                      <span key={key} className="mw-heatmap-legend-item">
+                        <span className="mw-heatmap-legend-dot" style={{ backgroundColor: cfg.color }} />
+                        {cfg.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </article>
+
+              {/* Symptom bar chart */}
+              <article className="mw-card">
+                <p className="mw-entity-kicker">Questionnaire Insights</p>
+                <h3>Top Symptom Domains</h3>
+                <p className="mw-entity-description" style={{ marginBottom: '16px' }}>
+                  Domains triggered most often across all sessions.
+                </p>
+                {symptomData.length === 0 ? (
+                  <div className="mw-scan-message-card">
+                    <h4>No data yet</h4>
+                    <p>Complete at least one questionnaire to see your symptom breakdown.</p>
+                  </div>
+                ) : (
+                  <div style={{ height: 240 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={symptomData} margin={{ top: 8, right: 8, left: 0, bottom: 44 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,43,60,0.07)" />
+                        <XAxis
+                          dataKey="domain"
+                          tick={{ fontSize: 11 }}
+                          angle={-35}
+                          textAnchor="end"
+                          interval={0}
+                        />
+                        <YAxis tick={{ fontSize: 11 }} width={28} allowDecimals={false} />
+                        <Tooltip
+                          formatter={(value: number) => [value, 'Times triggered']}
+                          contentStyle={{ fontSize: 13, borderRadius: 10, border: '1px solid rgba(26,43,60,0.1)' }}
+                        />
+                        <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                          {symptomData.map((_, index) => (
+                            <Cell key={`cell-${index}`} fill={barColors[index] ?? '#3a8f55'} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </article>
+            </div>
+
+            {/* Streak badges */}
+            {streakInfo && streakInfo.badges_earned.length > 0 && (
+              <article className="mw-card mw-info-panel">
+                <p className="mw-entity-kicker">Wellness Achievement</p>
+                <h3>Earned Badges</h3>
+                <div style={{ marginTop: '12px' }}>
+                  {renderStreakBadges(streakInfo)}
+                </div>
+              </article>
+            )}
+            {streakInfo && streakInfo.badges_earned.length === 0 && (
+              <article className="mw-card mw-info-panel">
+                <p className="mw-entity-kicker">Consistency Goal</p>
+                <h3>Earn Your First Badge</h3>
+                <p>Check in every week for 4 consecutive weeks to earn your Bronze Streak badge.</p>
+                <div className="mw-streak-badges" style={{ marginTop: '12px', opacity: 0.35 }}>
+                  {Object.values(BADGE_CONFIG).map((cfg) => (
+                    <div key={cfg.label} className="mw-streak-badge">
+                      <span className="mw-streak-badge-emoji">{cfg.emoji}</span>
+                      <div>
+                        <p className="mw-streak-badge-label">{cfg.label}</p>
+                        <p className="mw-streak-badge-desc">{cfg.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            )}
+          </>
+        )}
       </section>
     );
   };
 
+  const renderSupportSection = () => (
+    <section className="mw-entity-layout">
+      <div className="mw-panel-grid">
+        <article className="mw-card mw-info-panel">
+          <p className="mw-entity-kicker">Support</p>
+          <h3>What happens during a scan</h3>
+          <p>
+            MindWell captures a limited set of webcam frames, sends them to the employee-only backend vision route,
+            and returns the model result as a clean mood score summary after the 30-second scan ends. The preview
+            shuts off once the scan is done or stopped.
+          </p>
+        </article>
+
+        <article className="mw-card mw-info-panel">
+          <p className="mw-entity-kicker">If permission is denied</p>
+          <h3>How to recover</h3>
+          <p>
+            Open your browser site settings, allow camera access for this MindWell URL, then return to the Facial
+            Scan section and retry. The page will stay stable even if the browser refuses access.
+          </p>
+        </article>
+
+        <article className="mw-card mw-info-panel">
+          <p className="mw-entity-kicker">Model readiness</p>
+          <h3>Exact backend message</h3>
+          <p>{modelStatus?.message ?? modelStatusError ?? 'No readiness message available yet.'}</p>
+        </article>
+
+        <article className="mw-card mw-info-panel">
+          <p className="mw-entity-kicker">Crisis Support</p>
+          <h3>Immediate Help</h3>
+          <ul style={{ marginTop: '8px', paddingLeft: '16px', lineHeight: '1.9' }}>
+            <li>Crisis Text Line — text HOME to 741741</li>
+            <li>Suicide &amp; Crisis Lifeline — call or text 988</li>
+            <li>Employee Assistance Program (EAP) — contact your HR team</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  );
+
   const renderSection = () => {
     if (activeSectionId === 'overview') return renderOverview();
+    if (activeSectionId === 'analytics') return renderAnalyticsSection();
+    if (activeSectionId === 'support') return renderSupportSection();
     if (activeSectionId === 'facial-scan') {
       if (checkInPhase === 'questionnaire') return renderQuestionnaireSection();
       if (checkInPhase === 'results') return renderResultsSection();
       return renderScanSection();
     }
-    if (activeSectionId === 'support') return renderSupportSection();
     return renderOverview();
   };
 
   return (
     <AppShell
       title="Employee Wellness Dashboard"
-      subtitle="Private facial scan check-ins with model-readiness checks, permission safety, and a calm guided flow."
+      subtitle="Private facial scan check-ins with adaptive questionnaire, trend analytics, and personal wellness feedback."
       roleLabel="Employee"
       user={user}
       sections={[...DASHBOARD_SECTIONS]}

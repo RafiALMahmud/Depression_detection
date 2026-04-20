@@ -369,3 +369,15 @@ export interface SessionListResponse {
   items: SessionListItem[];
   meta: PaginationMeta;
 }
+
+export interface SymptomFrequency {
+  domain: string;
+  count: number;
+  avg_score: number;
+}
+
+export interface StreakInfo {
+  current_streak_weeks: number;
+  longest_streak_weeks: number;
+  badges_earned: string[];
+}

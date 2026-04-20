@@ -4,7 +4,6 @@ import { toast } from 'sonner';
 import { questionnaireApi } from '../../api/services';
 import type {
   QuestionOut,
-  SubmitAnswerResponse,
   ThresholdTier,
   VisionPredictionResult,
 } from '../../types/domain';
@@ -26,32 +25,6 @@ export interface CompletionSummary {
   thresholdTier: ThresholdTier;
 }
 
-const TIER_CONFIG: Record<ThresholdTier, { label: string; color: string; bg: string; message: string }> = {
-  low: {
-    label: 'Not Stressed',
-    color: 'text-emerald-700',
-    bg: 'bg-emerald-50 border-emerald-200',
-    message: "You're doing well. Keep up your regular check-ins to stay balanced.",
-  },
-  moderate: {
-    label: 'Moderately Stressed',
-    color: 'text-amber-700',
-    bg: 'bg-amber-50 border-amber-200',
-    message: 'Some indicators suggest moderate stress. Consider using the wellness resources available to you.',
-  },
-  high: {
-    label: 'Stressed',
-    color: 'text-orange-700',
-    bg: 'bg-orange-50 border-orange-200',
-    message: 'Your scores indicate elevated stress. Please reach out to a support resource.',
-  },
-  severe: {
-    label: 'Very Stressed',
-    color: 'text-red-700',
-    bg: 'bg-red-50 border-red-200',
-    message: 'Your scores suggest very high stress. We strongly encourage you to talk to a counselor or trusted person.',
-  },
-};
 
 export const QuestionnaireFlow = ({
   facialScanResult,
@@ -64,7 +37,6 @@ export const QuestionnaireFlow = ({
   const [currentQuestion, setCurrentQuestion] = useState<QuestionOut | null>(null);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [completionData, setCompletionData] = useState<SubmitAnswerResponse | null>(null);
 
   const startSession = useCallback(async () => {
     setPhase('starting');
@@ -107,7 +79,6 @@ export const QuestionnaireFlow = ({
       });
 
       if (result.is_complete) {
-        setCompletionData(result);
         setPhase('complete');
         toast.success('Questionnaire completed successfully.');
 
@@ -182,51 +153,8 @@ export const QuestionnaireFlow = ({
     );
   }
 
-  if (phase === 'complete' && completionData) {
-    const tier = completionData.threshold_tier ?? 'low';
-    const tierConfig = TIER_CONFIG[tier];
-
-    return (
-      <div className="mw-card" style={{ padding: '2rem' }}>
-        <p className="mw-entity-kicker">Check-In Complete</p>
-        <h3 style={{ marginBottom: '1.5rem' }}>Your Stress Screening Results</h3>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
-          <div className="mw-card" style={{ padding: '1rem', textAlign: 'center' }}>
-            <span className="mw-helper-text">Facial Score</span>
-            <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>{Math.round(facialScore)}</p>
-          </div>
-          <div className="mw-card" style={{ padding: '1rem', textAlign: 'center' }}>
-            <span className="mw-helper-text">Questionnaire Score</span>
-            <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>
-              {completionData.questionnaire_score !== null ? Math.round(completionData.questionnaire_score) : '—'}
-            </p>
-          </div>
-          <div className="mw-card" style={{ padding: '1rem', textAlign: 'center' }}>
-            <span className="mw-helper-text">Composite Score</span>
-            <p style={{ fontSize: '1.5rem', fontWeight: 700 }}>
-              {completionData.composite_score !== null ? Math.round(completionData.composite_score) : '—'}
-            </p>
-          </div>
-        </div>
-
-        <div
-          className={`${tierConfig.bg} border`}
-          style={{ padding: '1rem', borderRadius: '0.5rem', marginBottom: '1.5rem' }}
-        >
-          <p style={{ fontWeight: 600, marginBottom: '0.25rem' }} className={tierConfig.color}>
-            Stress Level: {tierConfig.label}
-          </p>
-          <p style={{ fontSize: '0.875rem' }}>{tierConfig.message}</p>
-        </div>
-
-        <div className="mw-info-panel-actions">
-          <button type="button" className="mw-btn-primary" onClick={onCancel}>
-            Return to Dashboard
-          </button>
-        </div>
-      </div>
-    );
+  if (phase === 'complete') {
+    return null; // parent renderResultsSection handles the post-session feedback screen
   }
 
   // Answering / Submitting phase
