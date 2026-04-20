@@ -4,6 +4,7 @@ import type {
   Company,
   CompanyDepartmentBreakdown,
   CompanyHeadSummary,
+  DepartmentManagerAnalytics,
   CompanyHeadProfile,
   CompanyOption,
   Department,
@@ -35,6 +36,8 @@ import type {
   SubmitAnswerResponse,
   SessionDetail,
   SessionListResponse,
+  DepressionLogEntry,
+  ScoringConfig,
   SymptomFrequency,
   StreakInfo,
 } from '../types/domain';
@@ -352,6 +355,10 @@ export const dashboardApi = {
     const response = await apiClient.get<DepartmentManagerSummary>('/dashboard/department-manager/summary');
     return normalizeDepartmentManagerSummary(response.data);
   },
+  departmentManagerAnalytics: async (): Promise<DepartmentManagerAnalytics> => {
+    const response = await apiClient.get<DepartmentManagerAnalytics>('/dashboard/department-manager/analytics');
+    return response.data;
+  },
 };
 
 export const optionsApi = {
@@ -583,6 +590,11 @@ export interface SubmitAnswerPayload {
   answer_index: number;
 }
 
+export interface ScoringConfigPayload {
+  facial_weight: number;
+  questionnaire_weight: number;
+}
+
 export interface ReportSubmitPayload {
   assessment: string;
   behavioral_patterns?: string;
@@ -639,10 +651,47 @@ export const questionnaireApi = {
     const response = await apiClient.get<SessionDetail>(`/questionnaire/session/${sessionId}`);
     return response.data;
   },
-  listSessions: async (page = 1, pageSize = 10): Promise<SessionListResponse> => {
+  listSessions: async (
+    page = 1,
+    pageSize = 10,
+    dateFrom?: string,
+    dateTo?: string,
+  ): Promise<SessionListResponse> => {
     const response = await apiClient.get<SessionListResponse>('/questionnaire/sessions', {
-      params: { page, page_size: pageSize },
+      params: {
+        page,
+        page_size: pageSize,
+        ...(dateFrom ? { date_from: dateFrom } : {}),
+        ...(dateTo ? { date_to: dateTo } : {}),
+      },
     });
+    return response.data;
+  },
+  getLog: async (dateFrom?: string, dateTo?: string): Promise<DepressionLogEntry[]> => {
+    const response = await apiClient.get<DepressionLogEntry[]>('/questionnaire/log', {
+      params: {
+        ...(dateFrom ? { date_from: dateFrom } : {}),
+        ...(dateTo ? { date_to: dateTo } : {}),
+      },
+    });
+    return response.data;
+  },
+  exportLogPdf: async (dateFrom?: string, dateTo?: string): Promise<Blob> => {
+    const response = await apiClient.get<Blob>('/questionnaire/log/export-pdf', {
+      params: {
+        ...(dateFrom ? { date_from: dateFrom } : {}),
+        ...(dateTo ? { date_to: dateTo } : {}),
+      },
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+  getScoringConfig: async (): Promise<ScoringConfig> => {
+    const response = await apiClient.get<ScoringConfig>('/questionnaire/scoring-config');
+    return response.data;
+  },
+  updateScoringConfig: async (payload: ScoringConfigPayload): Promise<ScoringConfig> => {
+    const response = await apiClient.put<ScoringConfig>('/questionnaire/scoring-config', payload);
     return response.data;
   },
   symptomFrequency: async (): Promise<SymptomFrequency[]> => {

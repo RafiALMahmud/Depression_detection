@@ -245,6 +245,57 @@ export interface DepartmentManagerSummary {
   recent_employees: SummaryUserPreview[];
 }
 
+export interface DepartmentTierBreakdownItem {
+  tier: ThresholdTier;
+  count: number;
+  percentage: number;
+}
+
+export interface DepartmentWeeklyAverageItem {
+  week_start: string;
+  week_end: string;
+  average_composite_score: number | null;
+  session_count: number;
+}
+
+export interface DepartmentHealthIndicator {
+  color: 'green' | 'amber' | 'red';
+  label: string;
+  reason: string;
+}
+
+export interface DepartmentComparisonItem {
+  anonymized_department_code: string;
+  average_composite_score: number | null;
+  total_employees: number;
+  employees_with_scores: number;
+  is_current_department: boolean;
+  outlier_status:
+    | 'higher_than_company_average'
+    | 'lower_than_company_average'
+    | 'within_expected_range'
+    | 'insufficient_data';
+}
+
+export interface DepartmentManagerAnalytics {
+  company_id: number;
+  department_id: number;
+  department_anonymized_code: string;
+  total_employees: number;
+  employees_with_scores: number;
+  threshold_distribution: DepartmentTierBreakdownItem[];
+  weekly_averages: DepartmentWeeklyAverageItem[];
+  current_week_average: number | null;
+  previous_week_average: number | null;
+  week_over_week_delta: number | null;
+  week_over_week_trend: 'improving' | 'worsening' | 'stable' | 'no_data';
+  health_indicator: DepartmentHealthIndicator;
+  company_average_composite: number | null;
+  company_std_dev_composite: number | null;
+  cross_department_comparison: DepartmentComparisonItem[];
+  generated_at: string;
+}
+
 export interface InvitationListItem {
   id: number;
   full_name: string;
@@ -329,6 +380,8 @@ export interface SubmitAnswerResponse {
   questionnaire_score: number | null;
   composite_score: number | null;
   threshold_tier: ThresholdTier | null;
+  score_weight_facial: number | null;
+  score_weight_questionnaire: number | null;
 }
 
 export interface AnswerDetail {
@@ -348,6 +401,8 @@ export interface SessionDetail {
   questionnaire_score: number | null;
   composite_score: number | null;
   threshold_tier: ThresholdTier | null;
+  score_weight_facial: number | null;
+  score_weight_questionnaire: number | null;
   status: string;
   created_at: string | null;
   completed_at: string | null;
@@ -360,6 +415,8 @@ export interface SessionListItem {
   questionnaire_score: number | null;
   composite_score: number | null;
   threshold_tier: ThresholdTier | null;
+  score_weight_facial: number | null;
+  score_weight_questionnaire: number | null;
   status: string;
   created_at: string | null;
   completed_at: string | null;
@@ -368,6 +425,20 @@ export interface SessionListItem {
 export interface SessionListResponse {
   items: SessionListItem[];
   meta: PaginationMeta;
+}
+
+export interface DepressionLogEntry {
+  session_id: number;
+  session_datetime: string | null;
+  facial_score: number | null;
+  questionnaire_score: number | null;
+  composite_score: number | null;
+  threshold_tier: ThresholdTier | null;
+  score_weight_facial: number | null;
+  score_weight_questionnaire: number | null;
+  created_at: string | null;
+  completed_at: string | null;
+  questions_and_answers: AnswerDetail[];
 }
 
 export interface SymptomFrequency {
@@ -380,4 +451,11 @@ export interface StreakInfo {
   current_streak_weeks: number;
   longest_streak_weeks: number;
   badges_earned: string[];
+}
+
+export interface ScoringConfig {
+  facial_weight: number;
+  questionnaire_weight: number;
+  updated_by_user_id: number | null;
+  updated_at: string | null;
 }

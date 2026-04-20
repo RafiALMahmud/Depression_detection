@@ -5,13 +5,14 @@ Handles session creation, answer submission, score computation, and retrieval.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
 from app.models.check_in_session import CheckInSession
 from app.models.employee import Employee
 from app.models.questionnaire_response import QuestionnaireResponse
+from app.services.scoring_config import get_effective_weights
 from app.services.questionnaire.branching import (
     build_question_sequence,
     compute_score,
@@ -120,10 +121,13 @@ def create_session(
     facial_emotions: dict | None = None,
 ) -> tuple[CheckInSession, dict]:
     """Create a new check-in session and return it along with the first question info."""
+    facial_weight, questionnaire_weight = get_effective_weights(db)
     session = CheckInSession(
         employee_id=employee_id,
         facial_score=facial_score,
         facial_emotions=facial_emotions,
+        score_weight_facial=facial_weight,
+        score_weight_questionnaire=questionnaire_weight,
         status="in_progress",
     )
     db.add(session)
@@ -216,6 +220,8 @@ def submit_answer(
             "questionnaire_score": None,
             "composite_score": None,
             "threshold_tier": None,
+            "score_weight_facial": session.score_weight_facial,
+            "score_weight_questionnaire": session.score_weight_questionnaire,
         }
 
     # Questionnaire complete — compute scores
@@ -243,6 +249,8 @@ def submit_answer(
         "questionnaire_score": questionnaire_score,
         "composite_score": composite,
         "threshold_tier": tier,
+        "score_weight_facial": session.score_weight_facial,
+        "score_weight_questionnaire": session.score_weight_questionnaire,
     }
 
 
@@ -270,6 +278,8 @@ def get_session_detail(db: Session, session_id: int, employee_id: int) -> dict |
         "questionnaire_score": session.questionnaire_score,
         "composite_score": session.composite_score,
         "threshold_tier": session.threshold_tier,
+        "score_weight_facial": session.score_weight_facial,
+        "score_weight_questionnaire": session.score_weight_questionnaire,
         "status": session.status,
         "created_at": session.created_at.isoformat() if session.created_at else None,
         "completed_at": session.completed_at.isoformat() if session.completed_at else None,
@@ -293,16 +303,22 @@ def list_sessions(
     employee_id: int,
     page: int = 1,
     page_size: int = 10,
+    date_from: date | None = None,
+    date_to: date | None = None,
 ) -> dict:
-    """Return a paginated list of completed sessions for an employee."""
-    query = (
+    """Return a paginated list of sessions for an employee, optionally filtered by date range."""
+    all_sessions = (
         db.query(CheckInSession)
         .filter(CheckInSession.employee_id == employee_id)
         .order_by(CheckInSession.created_at.desc())
+        .all()
     )
-    total = query.count()
+    filtered_sessions = [session for session in all_sessions if _in_date_range(session, date_from, date_to)]
+    total = len(filtered_sessions)
     total_pages = max(1, (total + page_size - 1) // page_size)
-    items = query.offset((page - 1) * page_size).limit(page_size).all()
+    start = (page - 1) * page_size
+    end = start + page_size
+    items = filtered_sessions[start:end]
 
     return {
         "items": [
@@ -312,6 +328,8 @@ def list_sessions(
                 "questionnaire_score": s.questionnaire_score,
                 "composite_score": s.composite_score,
                 "threshold_tier": s.threshold_tier,
+                "score_weight_facial": s.score_weight_facial,
+                "score_weight_questionnaire": s.score_weight_questionnaire,
                 "status": s.status,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
                 "completed_at": s.completed_at.isoformat() if s.completed_at else None,
@@ -325,6 +343,85 @@ def list_sessions(
             "total_pages": total_pages,
         },
     }
+
+
+def _in_date_range(
+    session: CheckInSession,
+    date_from: date | None,
+    date_to: date | None,
+) -> bool:
+    candidate = session.completed_at or session.created_at
+    if candidate is None:
+        return False
+    candidate_date = candidate.date()
+    if date_from and candidate_date < date_from:
+        return False
+    if date_to and candidate_date > date_to:
+        return False
+    return True
+
+
+def _build_log_entry(session: CheckInSession, responses: list[QuestionnaireResponse]) -> dict:
+    event_time = session.completed_at or session.created_at
+    return {
+        "session_id": session.id,
+        "session_datetime": event_time.isoformat() if event_time else None,
+        "facial_score": session.facial_score,
+        "questionnaire_score": session.questionnaire_score,
+        "composite_score": session.composite_score,
+        "threshold_tier": session.threshold_tier,
+        "score_weight_facial": session.score_weight_facial,
+        "score_weight_questionnaire": session.score_weight_questionnaire,
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+        "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+        "questions_and_answers": [
+            {
+                "question_id": r.question_id,
+                "question_text": r.question_text,
+                "domain": r.domain,
+                "answer_index": r.answer_index,
+                "answer_label": r.answer_label,
+                "score": r.score,
+                "sequence_order": r.sequence_order,
+            }
+            for r in responses
+        ],
+    }
+
+
+def list_depression_log(
+    db: Session,
+    employee_id: int,
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> list[dict]:
+    sessions = (
+        db.query(CheckInSession)
+        .filter(
+            CheckInSession.employee_id == employee_id,
+            CheckInSession.status == "completed",
+        )
+        .order_by(CheckInSession.completed_at.desc(), CheckInSession.created_at.desc())
+        .all()
+    )
+    filtered_sessions = [s for s in sessions if _in_date_range(s, date_from, date_to)]
+
+    if not filtered_sessions:
+        return []
+
+    session_ids = [session.id for session in filtered_sessions]
+    responses = (
+        db.query(QuestionnaireResponse)
+        .filter(QuestionnaireResponse.session_id.in_(session_ids))
+        .order_by(QuestionnaireResponse.session_id.asc(), QuestionnaireResponse.sequence_order.asc())
+        .all()
+    )
+    grouped: dict[int, list[QuestionnaireResponse]] = {}
+    for response in responses:
+        grouped.setdefault(response.session_id, []).append(response)
+
+    return [_build_log_entry(session, grouped.get(session.id, [])) for session in filtered_sessions]
 
 
 def get_symptom_frequency(db: Session, employee_id: int) -> list[dict]:

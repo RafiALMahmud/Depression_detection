@@ -73,3 +73,50 @@ class DepartmentManagerSummary(BaseModel):
     average_wellness_score_placeholder: float | None
     recent_invitations: list[SummaryInvitationPreview]
     recent_employees: list[SummaryUserPreview]
+
+
+class DepartmentTierBreakdownItem(BaseModel):
+    tier: str
+    count: int
+    percentage: float
+
+
+class DepartmentWeeklyAverageItem(BaseModel):
+    week_start: datetime
+    week_end: datetime
+    average_composite_score: float | None
+    session_count: int
+
+
+class DepartmentHealthIndicator(BaseModel):
+    color: str
+    label: str
+    reason: str
+
+
+class DepartmentComparisonItem(BaseModel):
+    anonymized_department_code: str
+    average_composite_score: float | None
+    total_employees: int
+    employees_with_scores: int
+    is_current_department: bool
+    outlier_status: str
+
+
+class DepartmentManagerAnalytics(BaseModel):
+    company_id: int
+    department_id: int
+    department_anonymized_code: str
+    total_employees: int
+    employees_with_scores: int
+    threshold_distribution: list[DepartmentTierBreakdownItem]
+    weekly_averages: list[DepartmentWeeklyAverageItem]
+    current_week_average: float | None
+    previous_week_average: float | None
+    week_over_week_delta: float | None
+    week_over_week_trend: str
+    health_indicator: DepartmentHealthIndicator
+    company_average_composite: float | None
+    company_std_dev_composite: float | None
+    cross_department_comparison: list[DepartmentComparisonItem]
+    generated_at: datetime

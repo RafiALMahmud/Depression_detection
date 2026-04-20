@@ -8,6 +8,7 @@ from app.models.department_manager import DepartmentManager
 from app.models.employee import Employee
 from app.models.invitation import Invitation
 from app.models.questionnaire_response import QuestionnaireResponse
+from app.models.scoring_config import ScoringConfig
 from app.models.system_admin_profile import SystemAdminProfile
 from app.models.user import User
 
@@ -22,6 +23,7 @@ __all__ = [
     "Employee",
     "Invitation",
     "QuestionnaireResponse",
+    "ScoringConfig",
     "SystemAdminProfile",
     "User",
 ]

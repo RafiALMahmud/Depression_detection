@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -21,6 +21,7 @@ import { StatsCard } from '../components/dashboard/StatsCard';
 import { QuestionnaireFlow } from '../components/questionnaire/QuestionnaireFlow';
 import type { CompletionSummary } from '../components/questionnaire/QuestionnaireFlow';
 import type {
+  DepressionLogEntry,
   LiveEmotionResult,
   SessionListItem,
   StreakInfo,
@@ -30,7 +31,7 @@ import type {
 } from '../types/domain';
 import { getDashboardPathByRole } from '../utils/roles';
 
-type DashboardSectionId = 'overview' | 'facial-scan' | 'analytics' | 'support';
+type DashboardSectionId = 'overview' | 'facial-scan' | 'analytics' | 'depression-log' | 'support';
 type CheckInPhase = 'scan' | 'questionnaire' | 'results';
 type CameraState = 'idle' | 'requesting' | 'ready' | 'denied' | 'unsupported' | 'error';
 type ScanPhase = 'idle' | 'capturing' | 'uploading' | 'success' | 'error';
@@ -55,6 +56,7 @@ const DASHBOARD_SECTIONS = [
   { id: 'overview', label: 'Overview' },
   { id: 'facial-scan', label: 'Facial Scan' },
   { id: 'analytics', label: 'Analytics' },
+  { id: 'depression-log', label: 'Depression Log' },
   { id: 'support', label: 'Support' },
 ] as const;
 
@@ -132,6 +134,21 @@ const resolveVisionErrorMessage = (error: unknown, fallback: string): string => 
   return fallback;
 };
 
+const resolveApiErrorMessage = (error: unknown, fallback: string): string => {
+  const detail = resolveApiDetail(error);
+  if (detail) return detail;
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: string }).code === 'ERR_NETWORK'
+  ) {
+    return 'Cannot reach the API server right now. Check backend connection and retry.';
+  }
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return fallback;
+};
+
 const computeFacialMoodScore = (result: VisionPredictionResult): number => {
   const weights: Record<string, number> = {
     sad: 1.0,
@@ -158,6 +175,18 @@ const toTitleCase = (value: string): string =>
     .join(' ');
 
 const toPercent = (value: number): string => `${Math.round(value * 100)}%`;
+
+const formatDateTime = (value: string | null | undefined): string => {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+};
+
+const formatScore = (value: number | null | undefined): string => {
+  if (value == null) return '-';
+  return value.toFixed(2);
+};
 
 const getCameraMessage = (state: CameraState, detail: string | null): string => {
   if (detail) return detail;
@@ -221,6 +250,15 @@ export const EmployeeDashboardPage = () => {
   const [symptomData, setSymptomData] = useState<SymptomFrequency[]>([]);
   const [streakInfo, setStreakInfo] = useState<StreakInfo | null>(null);
 
+  // Depression log state
+  const [depressionLog, setDepressionLog] = useState<DepressionLogEntry[]>([]);
+  const [depressionLogLoading, setDepressionLogLoading] = useState(false);
+  const [depressionLogError, setDepressionLogError] = useState<string | null>(null);
+  const [logDateFrom, setLogDateFrom] = useState('');
+  const [logDateTo, setLogDateTo] = useState('');
+  const [logExporting, setLogExporting] = useState(false);
+  const [expandedLogSessionId, setExpandedLogSessionId] = useState<number | null>(null);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -230,6 +268,7 @@ export const EmployeeDashboardPage = () => {
   const captureInProgressRef = useRef(false);
   const scanRunRef = useRef(0);
   const statusRunRef = useRef(0);
+  const logRunRef = useRef(0);
 
   const allowed = user?.role === 'employee';
   const selectedProfile = FACIAL_SCAN_PROFILE;
@@ -263,6 +302,40 @@ export const EmployeeDashboardPage = () => {
       setSessionHistoryLoading(false);
     }
   }, []);
+
+  const loadDepressionLog = useCallback(
+    async (dateFromArg?: string, dateToArg?: string) => {
+      const dateFrom = dateFromArg ?? logDateFrom;
+      const dateTo = dateToArg ?? logDateTo;
+
+      if (dateFrom && dateTo && dateFrom > dateTo) {
+        setDepressionLogError('Start date cannot be later than end date.');
+        setDepressionLog([]);
+        return;
+      }
+
+      const runId = ++logRunRef.current;
+      setDepressionLogLoading(true);
+      setDepressionLogError(null);
+
+      try {
+        const entries = await questionnaireApi.getLog(dateFrom || undefined, dateTo || undefined);
+        if (runId !== logRunRef.current) return;
+        setDepressionLog(entries);
+      } catch (error) {
+        if (runId !== logRunRef.current) return;
+        setDepressionLog([]);
+        setDepressionLogError(
+          resolveApiErrorMessage(error, 'Could not load your depression score log right now.'),
+        );
+      } finally {
+        if (runId === logRunRef.current) {
+          setDepressionLogLoading(false);
+        }
+      }
+    },
+    [logDateFrom, logDateTo],
+  );
 
   const clearTimers = useCallback(() => {
     if (captureIntervalRef.current !== null) {
@@ -590,7 +663,8 @@ export const EmployeeDashboardPage = () => {
     if (!allowed) return;
     void loadModelStatus();
     void loadAnalyticsData();
-  }, [allowed, loadModelStatus, loadAnalyticsData]);
+    void loadDepressionLog();
+  }, [allowed, loadModelStatus, loadAnalyticsData, loadDepressionLog]);
 
   useEffect(() => {
     if (activeSectionId === 'facial-scan') return;
@@ -602,6 +676,17 @@ export const EmployeeDashboardPage = () => {
       void loadAnalyticsData();
     }
   }, [activeSectionId, sessionHistory.length, sessionHistoryLoading, loadAnalyticsData]);
+
+  useEffect(() => {
+    if (
+      activeSectionId === 'depression-log' &&
+      !depressionLogLoading &&
+      depressionLog.length === 0 &&
+      !depressionLogError
+    ) {
+      void loadDepressionLog();
+    }
+  }, [activeSectionId, depressionLog.length, depressionLogError, depressionLogLoading, loadDepressionLog]);
 
   useEffect(() => {
     return () => {
@@ -687,6 +772,9 @@ export const EmployeeDashboardPage = () => {
               <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('analytics')}>
                 View Analytics
               </button>
+              <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('depression-log')}>
+                Depression Log
+              </button>
             </div>
           </article>
 
@@ -738,8 +826,9 @@ export const EmployeeDashboardPage = () => {
       setCompletionSummary(summary);
       setCheckInPhase('results');
       void loadAnalyticsData();
+      void loadDepressionLog();
     },
-    [loadAnalyticsData],
+    [loadAnalyticsData, loadDepressionLog],
   );
 
   const handleQuestionnaireCancel = useCallback(() => {
@@ -754,6 +843,47 @@ export const EmployeeDashboardPage = () => {
     setCompletionSummary(null);
     setActiveSectionId('overview');
   }, []);
+
+  const handleApplyLogFilters = useCallback(() => {
+    setExpandedLogSessionId(null);
+    void loadDepressionLog();
+  }, [loadDepressionLog]);
+
+  const handleClearLogFilters = useCallback(() => {
+    setLogDateFrom('');
+    setLogDateTo('');
+    setExpandedLogSessionId(null);
+    void loadDepressionLog('', '');
+  }, [loadDepressionLog]);
+
+  const handleExportLogPdf = useCallback(async () => {
+    if (logDateFrom && logDateTo && logDateFrom > logDateTo) {
+      const message = 'Start date cannot be later than end date.';
+      setDepressionLogError(message);
+      toast.error(message);
+      return;
+    }
+
+    setLogExporting(true);
+    try {
+      const blob = await questionnaireApi.exportLogPdf(logDateFrom || undefined, logDateTo || undefined);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `mindwell-depression-log-${new Date().toISOString().slice(0, 10)}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Depression log PDF downloaded.');
+    } catch (error) {
+      const message = resolveApiErrorMessage(error, 'Could not export your depression score log PDF right now.');
+      setDepressionLogError(message);
+      toast.error(message);
+    } finally {
+      setLogExporting(false);
+    }
+  }, [logDateFrom, logDateTo]);
 
   const renderQuestionnaireSection = () => {
     if (!scanResult) return null;
@@ -899,6 +1029,9 @@ export const EmployeeDashboardPage = () => {
             </button>
             <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('analytics')}>
               Open Analytics
+            </button>
+            <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('depression-log')}>
+              Open Log
             </button>
           </div>
         </div>
@@ -1402,6 +1535,169 @@ export const EmployeeDashboardPage = () => {
     );
   };
 
+  const renderDepressionLogSection = () => (
+    <section className="mw-entity-layout">
+      <div className="mw-card mw-entity-header">
+        <div className="mw-entity-header-row">
+          <div>
+            <p className="mw-entity-kicker">Private Score Log</p>
+            <h2 className="mw-entity-title">Depression Score Log</h2>
+            <p className="mw-entity-description">
+              Every completed session is saved with timestamp, facial score, questionnaire score, composite score,
+              threshold tier, and individual questionnaire answers.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="mw-btn-primary"
+            onClick={() => {
+              void handleExportLogPdf();
+            }}
+            disabled={logExporting || depressionLogLoading}
+          >
+            {logExporting ? 'Exporting...' : 'Export PDF'}
+          </button>
+        </div>
+      </div>
+
+      <article className="mw-card">
+        <div className="mw-entity-controls">
+          <label className="mw-field mw-filter-item">
+            <span className="mw-field-label">Date From</span>
+            <input
+              type="date"
+              className="mw-input"
+              value={logDateFrom}
+              max={logDateTo || undefined}
+              onChange={(event) => setLogDateFrom(event.target.value)}
+            />
+          </label>
+          <label className="mw-field mw-filter-item">
+            <span className="mw-field-label">Date To</span>
+            <input
+              type="date"
+              className="mw-input"
+              value={logDateTo}
+              min={logDateFrom || undefined}
+              onChange={(event) => setLogDateTo(event.target.value)}
+            />
+          </label>
+          <div className="mw-entity-control-actions">
+            <button type="button" className="mw-btn-primary" onClick={handleApplyLogFilters} disabled={depressionLogLoading}>
+              {depressionLogLoading ? 'Loading...' : 'Apply'}
+            </button>
+            <button type="button" className="mw-btn-ghost" onClick={handleClearLogFilters} disabled={depressionLogLoading}>
+              Clear
+            </button>
+          </div>
+        </div>
+
+        {depressionLogError ? (
+          <div className="mw-scan-message-card danger" style={{ marginTop: '12px' }}>
+            <h4>Log unavailable</h4>
+            <p>{depressionLogError}</p>
+          </div>
+        ) : null}
+
+        {depressionLogLoading ? (
+          <div className="mw-loading-card" style={{ marginTop: '12px' }}>Loading score log...</div>
+        ) : null}
+
+        {!depressionLogLoading && !depressionLogError && depressionLog.length === 0 ? (
+          <div className="mw-empty-state" style={{ marginTop: '14px' }}>
+            <h3>No completed sessions</h3>
+            <p>Complete a facial scan and questionnaire check-in to create your first timestamped score log entry.</p>
+          </div>
+        ) : null}
+
+        {!depressionLogLoading && !depressionLogError && depressionLog.length > 0 ? (
+          <>
+            <div className="mw-data-table-shell" style={{ marginTop: '12px' }}>
+              <div className="mw-data-table-scroll">
+                <table className="mw-data-table">
+                  <thead>
+                    <tr>
+                      <th>S/N</th>
+                      <th>Date &amp; Time</th>
+                      <th>Facial</th>
+                      <th>Questionnaire</th>
+                      <th>Composite</th>
+                      <th>Tier</th>
+                      <th>Weights</th>
+                      <th>Answers</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {depressionLog.map((entry, index) => {
+                      const tier = tierConfig(entry.threshold_tier);
+                      const isExpanded = expandedLogSessionId === entry.session_id;
+                      return (
+                        <Fragment key={entry.session_id}>
+                          <tr className="mw-data-row">
+                            <td>{index + 1}</td>
+                            <td>{formatDateTime(entry.session_datetime)}</td>
+                            <td>{formatScore(entry.facial_score)}</td>
+                            <td>{formatScore(entry.questionnaire_score)}</td>
+                            <td>{formatScore(entry.composite_score)}</td>
+                            <td>
+                              <span className={`mw-badge ${tier.badge}`}>{tier.label}</span>
+                            </td>
+                            <td>
+                              {Math.round((entry.score_weight_facial ?? 0.5) * 100)}% /
+                              {Math.round((entry.score_weight_questionnaire ?? 0.5) * 100)}%
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="mw-btn-chip"
+                                onClick={() =>
+                                  setExpandedLogSessionId((current) => (current === entry.session_id ? null : entry.session_id))
+                                }
+                              >
+                                {isExpanded ? 'Hide Answers' : `View Answers (${entry.questions_and_answers.length})`}
+                              </button>
+                            </td>
+                          </tr>
+                          {isExpanded ? (
+                            <tr className="mw-data-row">
+                              <td colSpan={8}>
+                                {entry.questions_and_answers.length === 0 ? (
+                                  <p className="mw-helper-text">No questionnaire answers were stored for this session.</p>
+                                ) : (
+                                  <div className="mw-log-answer-list">
+                                    {entry.questions_and_answers.map((answer) => (
+                                      <div key={`${entry.session_id}-${answer.sequence_order}`} className="mw-log-answer-item">
+                                        <p className="mw-log-answer-meta">
+                                          Q{answer.sequence_order} | {answer.domain}
+                                        </p>
+                                        <p className="mw-log-answer-text">{answer.question_text}</p>
+                                        <p className="mw-log-answer-value">
+                                          {answer.answer_label} (Score {answer.score})
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <p className="mw-helper-text" style={{ marginTop: '10px' }}>
+              Total entries: {depressionLog.length}
+            </p>
+          </>
+        ) : null}
+      </article>
+    </section>
+  );
+
   const renderSupportSection = () => (
     <section className="mw-entity-layout">
       <div className="mw-panel-grid">
@@ -1446,6 +1742,7 @@ export const EmployeeDashboardPage = () => {
   const renderSection = () => {
     if (activeSectionId === 'overview') return renderOverview();
     if (activeSectionId === 'analytics') return renderAnalyticsSection();
+    if (activeSectionId === 'depression-log') return renderDepressionLogSection();
     if (activeSectionId === 'support') return renderSupportSection();
     if (activeSectionId === 'facial-scan') {
       if (checkInPhase === 'questionnaire') return renderQuestionnaireSection();

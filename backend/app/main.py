@@ -21,6 +21,7 @@ from app.models import (  # noqa: F401
     Employee,
     Invitation,
     QuestionnaireResponse,
+    ScoringConfig,
     SystemAdminProfile,
     User,
 )

@@ -1,4 +1,8 @@
+import io
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
@@ -6,6 +10,9 @@ from app.db.session import get_db
 from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.questionnaire import (
+    DepressionLogEntry,
+    ScoringConfigRead,
+    ScoringConfigUpdateRequest,
     SessionDetail,
     SessionListResponse,
     StartSessionRequest,
@@ -16,6 +23,8 @@ from app.schemas.questionnaire import (
     StreakInfo,
 )
 from app.services.questionnaire import session_service
+from app.services.questionnaire.log_pdf import build_depression_log_pdf
+from app.services.scoring_config import get_or_create_config, update_weights
 
 router = APIRouter(prefix="/questionnaire", tags=["questionnaire"])
 
@@ -101,13 +110,108 @@ def get_session(
 def list_sessions(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=50),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.EMPLOYEE)),
 ):
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="date_from must be on or before date_to")
     employee = _get_employee_or_404(db, current_user)
-    result = session_service.list_sessions(db, employee.id, page=page, page_size=page_size)
+    result = session_service.list_sessions(
+        db,
+        employee.id,
+        page=page,
+        page_size=page_size,
+        date_from=date_from,
+        date_to=date_to,
+    )
 
     return SessionListResponse(**result)
+
+
+@router.get("/log", response_model=list[DepressionLogEntry])
+def get_depression_log(
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.EMPLOYEE)),
+):
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="date_from must be on or before date_to")
+    employee = _get_employee_or_404(db, current_user)
+    return session_service.list_depression_log(db, employee.id, date_from=date_from, date_to=date_to)
+
+
+@router.get("/log/export-pdf")
+def export_depression_log_pdf(
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.EMPLOYEE)),
+):
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="date_from must be on or before date_to")
+
+    employee = _get_employee_or_404(db, current_user)
+    entries = session_service.list_depression_log(db, employee.id, date_from=date_from, date_to=date_to)
+
+    try:
+        pdf_bytes = build_depression_log_pdf(
+            employee_name=employee.user.full_name if employee.user else "Employee",
+            entries=entries,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    file_name = f"mindwell-depression-log-{employee.id}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+    )
+
+
+@router.get("/scoring-config", response_model=ScoringConfigRead)
+def get_scoring_config(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.EMPLOYEE)),
+):
+    config = get_or_create_config(db)
+    return ScoringConfigRead(
+        facial_weight=config.facial_weight,
+        questionnaire_weight=config.questionnaire_weight,
+        updated_by_user_id=config.updated_by_user_id,
+        updated_at=config.updated_at,
+    )
+
+
+@router.put("/scoring-config", response_model=ScoringConfigRead)
+def update_scoring_config(
+    payload: ScoringConfigUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.SYSTEM_ADMIN)),
+):
+    try:
+        config = update_weights(
+            db,
+            facial_weight=payload.facial_weight,
+            questionnaire_weight=payload.questionnaire_weight,
+            actor_user_id=current_user.id,
+        )
+        db.commit()
+        db.refresh(config)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return ScoringConfigRead(
+        facial_weight=config.facial_weight,
+        questionnaire_weight=config.questionnaire_weight,
+        updated_by_user_id=config.updated_by_user_id,
+        updated_at=config.updated_at,
+    )
 
 
 @router.get("/symptom-frequency", response_model=list[SymptomFrequencyItem])

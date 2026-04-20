@@ -13,6 +13,7 @@ import {
   employeesApi,
   invitationsApi,
   optionsApi,
+  questionnaireApi,
   superAdminApi,
   systemAdminApi,
   type CompanyHeadPayload,
@@ -39,6 +40,7 @@ import type {
   DepartmentOption,
   EmployeeProfile,
   SuperAdminSummary,
+  ScoringConfig,
   SystemAdminProfile,
   SystemAdminSummary,
   User,
@@ -146,6 +148,16 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
   const [sectionReloadKey, setSectionReloadKey] = useState(0);
   const summaryRunRef = useRef(0);
   const lookupRunRef = useRef(0);
+  const scoringRunRef = useRef(0);
+
+  const [scoringConfig, setScoringConfig] = useState<ScoringConfig | null>(null);
+  const [scoringForm, setScoringForm] = useState<{ facial_weight: string; questionnaire_weight: string }>({
+    facial_weight: '0.5',
+    questionnaire_weight: '0.5',
+  });
+  const [scoringLoading, setScoringLoading] = useState(false);
+  const [scoringSaving, setScoringSaving] = useState(false);
+  const [scoringError, setScoringError] = useState<string | null>(null);
 
   const allowed = useMemo(() => {
     if (!user) return false;
@@ -230,10 +242,30 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
     }
   }, []);
 
+  const loadScoringConfig = useCallback(async () => {
+    const runId = ++scoringRunRef.current;
+    setScoringLoading(true);
+    setScoringError(null);
+    try {
+      const response = await questionnaireApi.getScoringConfig();
+      if (runId !== scoringRunRef.current) return;
+      setScoringConfig(response);
+      setScoringForm({
+        facial_weight: String(response.facial_weight),
+        questionnaire_weight: String(response.questionnaire_weight),
+      });
+    } catch (error) {
+      if (runId !== scoringRunRef.current) return;
+      setScoringError(getApiErrorMessage(error, 'Failed to load scoring configuration.'));
+    } finally {
+      if (runId === scoringRunRef.current) setScoringLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!allowed) return;
-    void Promise.all([loadSummary(), loadLookupOptions()]);
-  }, [allowed, loadSummary, loadLookupOptions]);
+    void Promise.all([loadSummary(), loadLookupOptions(), loadScoringConfig()]);
+  }, [allowed, loadSummary, loadLookupOptions, loadScoringConfig]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -342,6 +374,7 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
   const sections = isSuperMode
     ? [
         { id: 'overview', label: 'Overview' },
+        { id: 'scoring-config', label: 'Scoring Config' },
         ...(isPrimarySuperAdmin ? [{ id: 'super-admins', label: 'Super Admins' }] : []),
         { id: 'system-admins', label: 'System Admins' },
         { id: 'companies', label: 'Companies' },
@@ -352,6 +385,7 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
       ]
     : [
         { id: 'overview', label: 'Overview' },
+        { id: 'scoring-config', label: 'Scoring Config' },
         { id: 'companies', label: 'Companies' },
         { id: 'company-heads', label: 'Company Heads' },
         { id: 'departments', label: 'Departments' },
@@ -429,6 +463,162 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
         {cards.map((card) => (
           <StatsCard key={card.label} label={card.label} value={card.value} />
         ))}
+      </section>
+    );
+  };
+
+  const saveScoringConfig = useCallback(async () => {
+    const facialWeight = Number(scoringForm.facial_weight);
+    const questionnaireWeight = Number(scoringForm.questionnaire_weight);
+
+    if (!Number.isFinite(facialWeight) || !Number.isFinite(questionnaireWeight)) {
+      setScoringError('Both weights must be valid numbers.');
+      return;
+    }
+    if (facialWeight < 0 || questionnaireWeight < 0) {
+      setScoringError('Weights must be zero or positive.');
+      return;
+    }
+    if (facialWeight > 1 || questionnaireWeight > 1) {
+      setScoringError('Each weight must be between 0 and 1.');
+      return;
+    }
+    if (facialWeight + questionnaireWeight <= 0) {
+      setScoringError('At least one weight must be greater than zero.');
+      return;
+    }
+
+    setScoringSaving(true);
+    setScoringError(null);
+    try {
+      const updated = await questionnaireApi.updateScoringConfig({
+        facial_weight: facialWeight,
+        questionnaire_weight: questionnaireWeight,
+      });
+      setScoringConfig(updated);
+      setScoringForm({
+        facial_weight: String(updated.facial_weight),
+        questionnaire_weight: String(updated.questionnaire_weight),
+      });
+      toast.success('Composite score weights updated.');
+    } catch (error) {
+      setScoringError(getApiErrorMessage(error, 'Failed to update scoring configuration.'));
+    } finally {
+      setScoringSaving(false);
+    }
+  }, [scoringForm.facial_weight, scoringForm.questionnaire_weight]);
+
+  const resetScoringConfigForm = useCallback(() => {
+    if (!scoringConfig) return;
+    setScoringForm({
+      facial_weight: String(scoringConfig.facial_weight),
+      questionnaire_weight: String(scoringConfig.questionnaire_weight),
+    });
+    setScoringError(null);
+  }, [scoringConfig]);
+
+  const renderScoringConfig = () => {
+    const facialWeight = Number(scoringForm.facial_weight || 0);
+    const questionnaireWeight = Number(scoringForm.questionnaire_weight || 0);
+    const facialPercent = Number.isFinite(facialWeight) ? Math.round(facialWeight * 100) : 0;
+    const questionnairePercent = Number.isFinite(questionnaireWeight) ? Math.round(questionnaireWeight * 100) : 0;
+
+    return (
+      <section className="mw-entity-layout">
+        <div className="mw-card mw-entity-header">
+          <div className="mw-entity-header-row">
+            <div>
+              <p className="mw-entity-kicker">Composite Algorithm</p>
+              <h2 className="mw-entity-title">Depression Score Weights</h2>
+              <p className="mw-entity-description">
+                Configure how Facial Mood Score and Questionnaire Score are fused into the 0-100 composite score.
+                Default is 50/50.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <article className="mw-card mw-info-panel">
+          {scoringLoading ? (
+            <div className="mw-loading-card">Loading scoring configuration...</div>
+          ) : (
+            <>
+              <div className="mw-form-actions-row">
+                <label className="mw-field">
+                  <span className="mw-field-label">Facial Weight (0 to 1)</span>
+                  <input
+                    className="mw-input"
+                    type="number"
+                    min={0}
+                    max={1}
+                    step="0.01"
+                    value={scoringForm.facial_weight}
+                    onChange={(event) => setScoringForm((prev) => ({ ...prev, facial_weight: event.target.value }))}
+                  />
+                </label>
+                <label className="mw-field">
+                  <span className="mw-field-label">Questionnaire Weight (0 to 1)</span>
+                  <input
+                    className="mw-input"
+                    type="number"
+                    min={0}
+                    max={1}
+                    step="0.01"
+                    value={scoringForm.questionnaire_weight}
+                    onChange={(event) =>
+                      setScoringForm((prev) => ({ ...prev, questionnaire_weight: event.target.value }))
+                    }
+                  />
+                </label>
+              </div>
+
+              <div className="mw-inline-summary">
+                <span className="mw-badge mw-badge-info">Facial {facialPercent}%</span>
+                <span className="mw-badge mw-badge-success">Questionnaire {questionnairePercent}%</span>
+                <span className="mw-helper-text">
+                  Tiers: Low 0-25, Moderate 26-50, High 51-75, Severe 76-100
+                </span>
+              </div>
+
+              {scoringConfig?.updated_at ? (
+                <p className="mw-helper-text" style={{ marginTop: '10px' }}>
+                  Last updated at {new Date(scoringConfig.updated_at).toLocaleString()}
+                </p>
+              ) : null}
+
+              {scoringError ? (
+                <div className="mw-scan-message-card danger" style={{ marginTop: '14px' }}>
+                  <h4>Configuration Error</h4>
+                  <p>{scoringError}</p>
+                </div>
+              ) : null}
+
+              <div className="mw-info-panel-actions" style={{ marginTop: '16px' }}>
+                <button type="button" className="mw-btn-primary" onClick={() => void saveScoringConfig()} disabled={scoringSaving}>
+                  {scoringSaving ? 'Saving...' : 'Save Weights'}
+                </button>
+                <button
+                  type="button"
+                  className="mw-btn-ghost"
+                  onClick={resetScoringConfigForm}
+                  disabled={scoringSaving || !scoringConfig}
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  className="mw-btn-ghost"
+                  onClick={() => {
+                    void loadScoringConfig();
+                  }}
+                  disabled={scoringSaving || scoringLoading}
+                >
+                  Refresh
+                </button>
+              </div>
+            </>
+          )}
+        </article>
       </section>
     );
   };
@@ -522,6 +712,10 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
   const entityComponent = () => {
     if (activeSectionId === 'overview') {
       return renderOverview();
+    }
+
+    if (activeSectionId === 'scoring-config') {
+      return renderScoringConfig();
     }
 
     if (requiresLookupOptions && lookupLoading) {

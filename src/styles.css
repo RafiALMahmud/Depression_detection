@@ -840,6 +840,40 @@ a {
   flex-wrap: wrap;
 }
 
+.mw-log-answer-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mw-log-answer-item {
+  border: 1px solid rgba(26, 43, 60, 0.12);
+  border-radius: 12px;
+  background: rgba(250, 248, 243, 0.72);
+  padding: 10px 12px;
+}
+
+.mw-log-answer-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.mw-log-answer-text {
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.mw-log-answer-value {
+  margin-top: 6px;
+  color: var(--green-700);
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .mw-chip-danger {
   color: #b91c1c;
   border-color: #fca5a5;

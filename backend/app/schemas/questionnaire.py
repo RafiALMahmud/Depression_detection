@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -39,6 +41,8 @@ class SubmitAnswerResponse(BaseModel):
     questionnaire_score: float | None = None
     composite_score: float | None = None
     threshold_tier: str | None = None
+    score_weight_facial: float | None = None
+    score_weight_questionnaire: float | None = None
 
 
 class AnswerDetail(BaseModel):
@@ -58,6 +62,8 @@ class SessionDetail(BaseModel):
     questionnaire_score: float | None
     composite_score: float | None
     threshold_tier: str | None
+    score_weight_facial: float | None = None
+    score_weight_questionnaire: float | None = None
     status: str
     created_at: str | None
     completed_at: str | None
@@ -70,6 +76,8 @@ class SessionListItem(BaseModel):
     questionnaire_score: float | None
     composite_score: float | None
     threshold_tier: str | None
+    score_weight_facial: float | None = None
+    score_weight_questionnaire: float | None = None
     status: str
     created_at: str | None
     completed_at: str | None
@@ -87,6 +95,20 @@ class SessionListResponse(BaseModel):
     meta: SessionListMeta
 
 
+class DepressionLogEntry(BaseModel):
+    session_id: int
+    session_datetime: str | None
+    facial_score: float | None
+    questionnaire_score: float | None
+    composite_score: float | None
+    threshold_tier: str | None
+    score_weight_facial: float | None
+    score_weight_questionnaire: float | None
+    created_at: str | None
+    completed_at: str | None
+    questions_and_answers: list[AnswerDetail]
+
+
 class SymptomFrequencyItem(BaseModel):
     domain: str
     count: int
@@ -97,3 +119,15 @@ class StreakInfo(BaseModel):
     current_streak_weeks: int
     longest_streak_weeks: int
     badges_earned: list[str]
+
+
+class ScoringConfigRead(BaseModel):
+    facial_weight: float
+    questionnaire_weight: float
+    updated_by_user_id: int | None = None
+    updated_at: datetime | None = None
+
+
+class ScoringConfigUpdateRequest(BaseModel):
+    facial_weight: float = Field(..., ge=0, le=1)
+    questionnaire_weight: float = Field(..., ge=0, le=1)

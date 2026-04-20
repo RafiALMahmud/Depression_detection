@@ -3,6 +3,18 @@ import type { ReactNode } from 'react';
 import { useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 import {
   dashboardApi,
@@ -21,7 +33,13 @@ import { AppShell } from '../components/dashboard/AppShell';
 import { EntitySection } from '../components/dashboard/EntitySection';
 import { StatsCard } from '../components/dashboard/StatsCard';
 import type { FormFieldConfig, RowAction, TableColumn } from '../components/dashboard/types';
-import type { DepartmentManagerSummary, EmployeeProfile, InvitationListItem } from '../types/domain';
+import type {
+  DepartmentComparisonItem,
+  DepartmentManagerAnalytics,
+  DepartmentManagerSummary,
+  EmployeeProfile,
+  InvitationListItem,
+} from '../types/domain';
 import { getDashboardPathByRole } from '../utils/roles';
 
 type FormValues = Record<string, string | boolean>;
@@ -85,6 +103,27 @@ const getUserName = (user: UserLike): string => user?.full_name?.trim() || 'Unkn
 const getUserEmail = (user: UserLike): string => user?.email?.trim() || '-';
 const isUserActive = (user: UserLike): boolean => Boolean(user?.is_active);
 
+const HEALTH_INDICATOR_STYLE: Record<'green' | 'amber' | 'red', { badge: string; color: string }> = {
+  green: { badge: 'mw-badge-success', color: '#2d7a47' },
+  amber: { badge: 'mw-badge-warning', color: '#d97706' },
+  red: { badge: 'mw-badge-danger', color: '#dc2626' },
+};
+
+const TIER_COLORS: Record<string, string> = {
+  low: '#3a8f55',
+  moderate: '#d97706',
+  high: '#ef6c00',
+  severe: '#dc2626',
+};
+
+const formatPercentage = (value: number): string => `${value.toFixed(1)}%`;
+
+const formatWeekLabel = (isoDate: string): string => {
+  const parsed = new Date(isoDate);
+  if (Number.isNaN(parsed.getTime())) return isoDate;
+  return parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+};
+
 export const DepartmentManagerDashboardPage = () => {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
@@ -97,6 +136,9 @@ export const DepartmentManagerDashboardPage = () => {
   const [complianceData, setComplianceData] = useState<EmployeeComplianceEntry[] | null>(null);
   const [complianceLoading, setComplianceLoading] = useState(false);
   const [complianceError, setComplianceError] = useState<string | null>(null);
+  const [analytics, setAnalytics] = useState<DepartmentManagerAnalytics | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
   const [reportPreview, setReportPreview] = useState<ReportPreview | null>(null);
   const [reportPreviewLoading, setReportPreviewLoading] = useState(false);
@@ -112,6 +154,7 @@ export const DepartmentManagerDashboardPage = () => {
   const [reportPdfDownloadingId, setReportPdfDownloadingId] = useState<number | null>(null);
 
   const summaryRunRef = useRef(0);
+  const analyticsRunRef = useRef(0);
 
   const allowed = user?.role === 'department_manager';
 
@@ -156,10 +199,50 @@ export const DepartmentManagerDashboardPage = () => {
     }
   }, []);
 
+  const loadAnalytics = useCallback(async () => {
+    const runId = ++analyticsRunRef.current;
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    if (import.meta.env.DEV) {
+      console.info('[MindWell][DepartmentManager] analytics:load:start');
+    }
+
+    try {
+      const response = await dashboardApi.departmentManagerAnalytics();
+      if (runId !== analyticsRunRef.current) return;
+      setAnalytics(response);
+      if (import.meta.env.DEV) {
+        console.info('[MindWell][DepartmentManager] analytics:load:success', {
+          entries: response.weekly_averages.length,
+          comparisonDepartments: response.cross_department_comparison.length,
+        });
+      }
+    } catch (error) {
+      if (runId !== analyticsRunRef.current) return;
+      const message = getApiErrorMessage(error, 'Failed to load anonymized department analytics.');
+      setAnalyticsError(message);
+      toast.error(message);
+    } finally {
+      if (runId === analyticsRunRef.current) {
+        setAnalyticsLoading(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!allowed) return;
     void loadSummary();
   }, [allowed, loadSummary]);
+
+  useEffect(() => {
+    if (!allowed) return;
+    if (!['overview', 'detection-analytics', 'facial-scores', 'questionnaire-scores', 'average-trends'].includes(activeSectionId)) {
+      return;
+    }
+    if (!analytics && !analyticsLoading) {
+      void loadAnalytics();
+    }
+  }, [activeSectionId, allowed, analytics, analyticsLoading, loadAnalytics]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -167,12 +250,14 @@ export const DepartmentManagerDashboardPage = () => {
       section: activeSectionId,
       summaryLoading,
       hasSummaryError: Boolean(summaryError),
+      analyticsLoading,
+      hasAnalyticsError: Boolean(analyticsError),
     });
-  }, [activeSectionId, summaryLoading, summaryError]);
+  }, [activeSectionId, summaryLoading, summaryError, analyticsLoading, analyticsError]);
 
   const refreshAfterChange = useCallback(async () => {
-    await loadSummary();
-  }, [loadSummary]);
+    await Promise.all([loadSummary(), loadAnalytics()]);
+  }, [loadSummary, loadAnalytics]);
 
   const bumpSectionReload = useCallback(() => {
     setSectionReloadKey((prev) => prev + 1);
@@ -776,13 +861,17 @@ export const DepartmentManagerDashboardPage = () => {
           </article>
 
           <article className="mw-card mw-info-panel">
-            <p className="mw-entity-kicker">Upcoming Modules</p>
-            <h3>Analytics Roadmap</h3>
+            <p className="mw-entity-kicker">Anonymized Analytics</p>
+            <h3>Department Pulse Is Now Live</h3>
             <p>
-              Detection analytics, facial score anonymization, questionnaire score trends, and wellness-average charts
-              are scaffolded and ready for backend model integration.
+              View threshold distribution, week-over-week trend lines, and anonymized cross-department benchmarking
+              from the analytics sections in the sidebar.
             </p>
-            <span className="mw-coming-soon-pill">Coming Soon</span>
+            <div className="mw-info-panel-actions">
+              <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('detection-analytics')}>
+                Open Analytics
+              </button>
+            </div>
           </article>
 
           <article className="mw-card mw-info-panel">
@@ -898,33 +987,394 @@ export const DepartmentManagerDashboardPage = () => {
     );
   };
 
-  const renderPlaceholderSection = (
-    title: string,
-    description: string,
-    cards: Array<{ title: string; copy: string }>,
-  ) => {
+  const renderAnalyticsGuard = (title: string, description: string): ReactNode | null => {
+    if (analyticsLoading) {
+      return (
+        <section className="mw-entity-layout">
+          <div className="mw-card mw-entity-header">
+            <div className="mw-entity-header-row">
+              <div>
+                <p className="mw-entity-kicker">Anonymized Department Analytics</p>
+                <h2 className="mw-entity-title">{title}</h2>
+                <p className="mw-entity-description">{description}</p>
+              </div>
+            </div>
+          </div>
+          <div className="mw-card mw-loading-card">Loading anonymized analytics...</div>
+        </section>
+      );
+    }
+    if (analyticsError) {
+      return (
+        <section className="mw-entity-layout">
+          <div className="mw-card mw-empty-state">
+            <h3>Analytics unavailable</h3>
+            <p>{analyticsError}</p>
+            <button type="button" className="mw-btn-primary mt-4" onClick={() => { void loadAnalytics(); }}>
+              Retry analytics load
+            </button>
+          </div>
+        </section>
+      );
+    }
+    if (!analytics) {
+      return (
+        <section className="mw-entity-layout">
+          <div className="mw-card mw-empty-state">
+            <h3>Analytics unavailable</h3>
+            <p>Department analytics have not loaded yet.</p>
+            <button type="button" className="mw-btn-primary mt-4" onClick={() => { void loadAnalytics(); }}>
+              Load analytics
+            </button>
+          </div>
+        </section>
+      );
+    }
+    return null;
+  };
+
+  const renderDetectionAnalyticsSection = () => {
+    const guard = renderAnalyticsGuard(
+      'Detection Analytics',
+      'Anonymized, department-level threshold distribution and health indicator based on latest completed sessions.',
+    );
+    if (guard) return guard;
+
+    const currentAnalytics = analytics as DepartmentManagerAnalytics;
+    const healthStyle = HEALTH_INDICATOR_STYLE[currentAnalytics.health_indicator.color];
+    const distributionData = currentAnalytics.threshold_distribution.map((item) => ({
+      tier: item.tier.charAt(0).toUpperCase() + item.tier.slice(1),
+      percentage: Number(item.percentage.toFixed(2)),
+      count: item.count,
+      color: TIER_COLORS[item.tier] ?? '#64748b',
+    }));
+
     return (
       <section className="mw-entity-layout">
         <div className="mw-card mw-entity-header">
           <div className="mw-entity-header-row">
             <div>
-              <p className="mw-entity-kicker">Analytics Module</p>
-              <h2 className="mw-entity-title">{title}</h2>
-              <p className="mw-entity-description">{description}</p>
+              <p className="mw-entity-kicker">Anonymized Department Analytics</p>
+              <h2 className="mw-entity-title">Detection Analytics</h2>
+              <p className="mw-entity-description">
+                Percent of employees in each threshold tier (Low / Moderate / High / Severe) and an overall health indicator.
+              </p>
             </div>
-            <span className="mw-coming-soon-pill">Coming Soon</span>
+            <span className={`mw-badge ${healthStyle.badge}`}>{currentAnalytics.health_indicator.label}</span>
           </div>
         </div>
 
-        <div className="mw-placeholder-grid">
-          {cards.map((card) => (
-            <article key={card.title} className="mw-card mw-placeholder-card">
-              <h3>{card.title}</h3>
-              <p>{card.copy}</p>
-              <div className="mw-chart-placeholder" role="presentation" />
-            </article>
-          ))}
+        <section className="mw-stat-grid">
+          <StatsCard label="Total Employees" value={currentAnalytics.total_employees} />
+          <StatsCard label="Employees With Scores" value={currentAnalytics.employees_with_scores} />
+          <StatsCard
+            label="Current Week Average"
+            value={currentAnalytics.current_week_average != null ? currentAnalytics.current_week_average : 0}
+          />
+          <StatsCard
+            label="Week-over-Week Delta"
+            value={currentAnalytics.week_over_week_delta != null ? currentAnalytics.week_over_week_delta : 0}
+          />
+        </section>
+
+        <article className="mw-card mw-info-panel">
+          <p className="mw-entity-kicker">Department Code</p>
+          <h3>{currentAnalytics.department_anonymized_code}</h3>
+          <p>This anonymized code is used across benchmarking widgets instead of real department names.</p>
+        </article>
+
+        <div className="mw-panel-grid">
+          <article className="mw-card">
+            <p className="mw-entity-kicker">Tier Distribution</p>
+            <h3>Employees by Threshold Tier</h3>
+            <p className="mw-entity-description" style={{ marginBottom: '12px' }}>
+              Percentages are calculated at department level with anonymized aggregation.
+            </p>
+            <div style={{ height: 250 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={distributionData} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,43,60,0.07)" />
+                  <XAxis dataKey="tier" tick={{ fontSize: 12 }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
+                  <Tooltip
+                    formatter={(value: number, _name: string, props) => [
+                      `${value.toFixed(2)}% (${props?.payload?.count ?? 0})`,
+                      'Employees',
+                    ]}
+                    contentStyle={{ fontSize: 13, borderRadius: 10, border: '1px solid rgba(26,43,60,0.1)' }}
+                  />
+                  <Bar dataKey="percentage" radius={[8, 8, 0, 0]}>
+                    {distributionData.map((item) => (
+                      <Cell key={item.tier} fill={item.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+
+          <article className="mw-card mw-info-panel">
+            <p className="mw-entity-kicker">Overall Health Indicator</p>
+            <h3 style={{ color: healthStyle.color }}>{currentAnalytics.health_indicator.label}</h3>
+            <p>{currentAnalytics.health_indicator.reason}</p>
+            <div className="mw-inline-summary" style={{ marginTop: '10px' }}>
+              <span className={`mw-badge ${healthStyle.badge}`}>{currentAnalytics.health_indicator.color.toUpperCase()}</span>
+              <span className="mw-helper-text">
+                Trend: {currentAnalytics.week_over_week_trend.replace('_', ' ').toUpperCase()}
+              </span>
+            </div>
+            <div className="mw-info-panel-actions" style={{ marginTop: '14px' }}>
+              <button type="button" className="mw-btn-ghost" onClick={() => { void loadAnalytics(); }}>
+                Refresh analytics
+              </button>
+            </div>
+          </article>
         </div>
+      </section>
+    );
+  };
+
+  const renderFacialScoresSection = () => {
+    const guard = renderAnalyticsGuard(
+      'Facial Scores',
+      'Cross-department benchmarking is anonymized and shown only by synthetic department codes.',
+    );
+    if (guard) return guard;
+
+    const currentAnalytics = analytics as DepartmentManagerAnalytics;
+    const comparisonData = currentAnalytics.cross_department_comparison.map((item) => ({
+      code: item.anonymized_department_code,
+      score: item.average_composite_score ?? 0,
+      hasData: item.average_composite_score != null,
+      isCurrent: item.is_current_department,
+      outlier: item.outlier_status,
+    }));
+
+    const comparisonColumns: TableColumn<DepartmentComparisonItem>[] = [
+      { key: 'code', title: 'Department Code', render: (item) => item.anonymized_department_code },
+      {
+        key: 'score',
+        title: 'Average Composite',
+        render: (item) => (item.average_composite_score != null ? item.average_composite_score.toFixed(2) : '-'),
+      },
+      { key: 'employees', title: 'Employees', render: (item) => item.total_employees },
+      { key: 'scored', title: 'With Scores', render: (item) => item.employees_with_scores },
+      {
+        key: 'status',
+        title: 'Outlier Status',
+        render: (item) => {
+          if (item.outlier_status === 'higher_than_company_average') {
+            return <span className="mw-badge mw-badge-danger">Higher Than Avg</span>;
+          }
+          if (item.outlier_status === 'lower_than_company_average') {
+            return <span className="mw-badge mw-badge-success">Lower Than Avg</span>;
+          }
+          if (item.outlier_status === 'within_expected_range') {
+            return <span className="mw-badge mw-badge-info">Within Range</span>;
+          }
+          return <span className="mw-badge mw-badge-muted">Insufficient Data</span>;
+        },
+      },
+    ];
+
+    return (
+      <section className="mw-entity-layout">
+        <div className="mw-card mw-entity-header">
+          <div className="mw-entity-header-row">
+            <div>
+              <p className="mw-entity-kicker">Anonymized Benchmarking</p>
+              <h2 className="mw-entity-title">Cross-Department Comparison</h2>
+              <p className="mw-entity-description">
+                Benchmark your department against other departments in the same company using anonymized department codes.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <section className="mw-stat-grid">
+          <StatsCard
+            label="Company Average"
+            value={currentAnalytics.company_average_composite != null ? currentAnalytics.company_average_composite : 0}
+          />
+          <StatsCard
+            label="Company Std Dev"
+            value={currentAnalytics.company_std_dev_composite != null ? currentAnalytics.company_std_dev_composite : 0}
+          />
+          <StatsCard label="Compared Departments" value={comparisonData.length} />
+        </section>
+
+        <article className="mw-card mw-info-panel">
+          <p className="mw-entity-kicker">Your Department Code</p>
+          <h3>{currentAnalytics.department_anonymized_code}</h3>
+          <p>Use this code to identify your bar and row in anonymized cross-department comparisons.</p>
+        </article>
+
+        <article className="mw-card">
+          <p className="mw-entity-kicker">Anonymized Distribution</p>
+          <h3>Department Average Composite Scores</h3>
+          <div style={{ height: 280, marginTop: '12px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={comparisonData} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,43,60,0.07)" />
+                <XAxis dataKey="code" tick={{ fontSize: 11 }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
+                <Tooltip
+                  formatter={(value: number, _name: string, props) => [
+                    props?.payload?.hasData ? value.toFixed(2) : 'No data',
+                    'Average composite',
+                  ]}
+                  contentStyle={{ fontSize: 13, borderRadius: 10, border: '1px solid rgba(26,43,60,0.1)' }}
+                />
+                <Bar dataKey="score" radius={[8, 8, 0, 0]}>
+                  {comparisonData.map((item) => (
+                    <Cell key={item.code} fill={item.isCurrent ? '#143250' : '#3a8f55'} opacity={item.hasData ? 1 : 0.35} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="mw-helper-text" style={{ marginTop: '10px' }}>
+            Navy bar indicates your department; green bars represent other anonymized departments.
+          </p>
+        </article>
+
+        <article className="mw-card">
+          <DataTable<DepartmentComparisonItem>
+            columns={comparisonColumns}
+            items={currentAnalytics.cross_department_comparison}
+            getRowId={(item) => item.anonymized_department_code}
+            emptyMessage="No department comparison data available yet."
+          />
+        </article>
+      </section>
+    );
+  };
+
+  const renderQuestionnaireScoresSection = () => {
+    const guard = renderAnalyticsGuard(
+      'Questionnaire Scores',
+      'Questionnaire-driven aggregation is anonymized and represented at the department level only.',
+    );
+    if (guard) return guard;
+
+    const currentAnalytics = analytics as DepartmentManagerAnalytics;
+    const scoredCoverage =
+      currentAnalytics.total_employees > 0
+        ? (currentAnalytics.employees_with_scores / currentAnalytics.total_employees) * 100
+        : 0;
+
+    return (
+      <section className="mw-entity-layout">
+        <div className="mw-card mw-entity-header">
+          <div className="mw-entity-header-row">
+            <div>
+              <p className="mw-entity-kicker">Questionnaire Aggregation</p>
+              <h2 className="mw-entity-title">Anonymized Questionnaire Signals</h2>
+              <p className="mw-entity-description">
+                Individual responses are not shown. Scores are aggregated to protect employee privacy while guiding interventions.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <section className="mw-stat-grid">
+          <StatsCard label="Employees With Scored Sessions" value={currentAnalytics.employees_with_scores} />
+          <StatsCard label="Total Employees" value={currentAnalytics.total_employees} />
+          <StatsCard label="Scored Coverage %" value={Number(scoredCoverage.toFixed(2))} />
+          <StatsCard
+            label="Current Composite Avg"
+            value={currentAnalytics.current_week_average != null ? currentAnalytics.current_week_average : 0}
+          />
+        </section>
+
+        <article className="mw-card mw-info-panel">
+          <p className="mw-entity-kicker">Privacy Guardrail</p>
+          <h3>No employee names are exposed in this module</h3>
+          <p>
+            Only department-level trends and percentages are shown. Use this aggregate signal to decide whether broader
+            support action is needed, without viewing individual questionnaire answers.
+          </p>
+          <div className="mw-inline-summary" style={{ marginTop: '10px' }}>
+            {currentAnalytics.threshold_distribution.map((item) => (
+              <span key={item.tier} className="mw-badge mw-badge-muted">
+                {item.tier.toUpperCase()}: {formatPercentage(item.percentage)}
+              </span>
+            ))}
+          </div>
+        </article>
+      </section>
+    );
+  };
+
+  const renderAverageTrendsSection = () => {
+    const guard = renderAnalyticsGuard(
+      'Average Trends',
+      'Department average composite score for current and previous four weeks, with week-over-week movement.',
+    );
+    if (guard) return guard;
+
+    const currentAnalytics = analytics as DepartmentManagerAnalytics;
+    const weeklyData = currentAnalytics.weekly_averages.map((item) => ({
+      week: formatWeekLabel(item.week_start),
+      average: item.average_composite_score,
+      sessions: item.session_count,
+    }));
+
+    return (
+      <section className="mw-entity-layout">
+        <div className="mw-card mw-entity-header">
+          <div className="mw-entity-header-row">
+            <div>
+              <p className="mw-entity-kicker">5-Week Trend</p>
+              <h2 className="mw-entity-title">Week-over-Week Composite Trend</h2>
+              <p className="mw-entity-description">
+                The line chart tracks current week plus previous four weeks to identify trend direction and outlier movement.
+              </p>
+            </div>
+            <span className="mw-badge mw-badge-info">
+              Trend: {currentAnalytics.week_over_week_trend.replace('_', ' ').toUpperCase()}
+            </span>
+          </div>
+        </div>
+
+        <section className="mw-stat-grid">
+          <StatsCard
+            label="Current Week Avg"
+            value={currentAnalytics.current_week_average != null ? currentAnalytics.current_week_average : 0}
+          />
+          <StatsCard
+            label="Previous Week Avg"
+            value={currentAnalytics.previous_week_average != null ? currentAnalytics.previous_week_average : 0}
+          />
+          <StatsCard
+            label="WoW Delta"
+            value={currentAnalytics.week_over_week_delta != null ? currentAnalytics.week_over_week_delta : 0}
+          />
+          <StatsCard label="Weeks Tracked" value={currentAnalytics.weekly_averages.length} />
+        </section>
+
+        <article className="mw-card">
+          <p className="mw-entity-kicker">Trend Line</p>
+          <h3>Department Average Composite Score</h3>
+          <div style={{ height: 280, marginTop: '12px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={weeklyData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(26,43,60,0.07)" />
+                <XAxis dataKey="week" tick={{ fontSize: 12 }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
+                <Tooltip
+                  formatter={(value: unknown, _name: string, payload: any) => {
+                    const numericValue = typeof value === 'number' ? value : Number(value);
+                    const rendered = Number.isFinite(numericValue) ? numericValue.toFixed(2) : 'No data';
+                    return [rendered, `Avg Composite (Sessions: ${payload?.payload?.sessions ?? 0})`];
+                  }}
+                  contentStyle={{ fontSize: 13, borderRadius: 10, border: '1px solid rgba(26,43,60,0.1)' }}
+                />
+                <Line type="monotone" dataKey="average" stroke="#143250" strokeWidth={2.5} connectNulls={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
       </section>
     );
   };
@@ -1027,87 +1477,19 @@ export const DepartmentManagerDashboardPage = () => {
     }
 
     if (activeSectionId === 'detection-analytics') {
-      return renderPlaceholderSection(
-        'Detection Analytics',
-        'This module will track scan completion and detection readiness for your department.',
-        [
-          {
-            title: 'Employees Scanned',
-            copy: 'Planned metric for counting completed detection scans in your department.',
-          },
-          {
-            title: 'Scan Completion Rate',
-            copy: 'Planned completion trend widget comparing total employees versus scanned employees.',
-          },
-          {
-            title: 'Detection Overview',
-            copy: 'Future breakdown cards for weekly and monthly detection activity snapshots.',
-          },
-        ],
-      );
+      return renderDetectionAnalyticsSection();
     }
 
     if (activeSectionId === 'facial-scores') {
-      return renderPlaceholderSection(
-        'Facial Scores',
-        'This page will display anonymized facial detection scores for your department without exposing employee names.',
-        [
-          {
-            title: 'Anonymized Score Table',
-            copy: 'Planned table with department-only score entries, no personal identity columns.',
-          },
-          {
-            title: 'Distribution Bands',
-            copy: 'Planned chart showing score ranges and concentration over time.',
-          },
-          {
-            title: 'Flag Summary',
-            copy: 'Future indicator cards for low, moderate, and high-risk trend segments.',
-          },
-        ],
-      );
+      return renderFacialScoresSection();
     }
 
     if (activeSectionId === 'questionnaire-scores') {
-      return renderPlaceholderSection(
-        'Questionnaire Scores',
-        'This module will surface anonymized adaptive questionnaire outcomes at department level.',
-        [
-          {
-            title: 'Adaptive Response Trends',
-            copy: 'Planned trends from adaptive questionnaire responses without individual identity.',
-          },
-          {
-            title: 'Department Score Buckets',
-            copy: 'Planned distribution cards for low/moderate/high questionnaire score groups.',
-          },
-          {
-            title: 'Readiness Heatmap',
-            copy: 'Future heatmap-style view of aggregated questionnaire severity levels.',
-          },
-        ],
-      );
+      return renderQuestionnaireScoresSection();
     }
 
     if (activeSectionId === 'average-trends') {
-      return renderPlaceholderSection(
-        'Average Trends',
-        'Future graphs for department-level average wellness and mental-health trajectory tracking.',
-        [
-          {
-            title: 'Average Score Timeline',
-            copy: 'Planned line chart visualizing average wellness score across selected periods.',
-          },
-          {
-            title: 'Multi-Signal Blend',
-            copy: 'Future blended indicator combining detection and questionnaire channels.',
-          },
-          {
-            title: 'Trend Alerts',
-            copy: 'Planned alert panel for sudden changes in department average metrics.',
-          },
-        ],
-      );
+      return renderAverageTrendsSection();
     }
 
     if (activeSectionId === 'invitations') {
