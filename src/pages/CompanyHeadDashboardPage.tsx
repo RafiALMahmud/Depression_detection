@@ -54,8 +54,15 @@ const activeField: FormFieldConfig = {
 
 const getApiErrorMessage = (error: unknown, fallback: string): string => {
   if (typeof error === 'object' && error !== null && 'response' in error) {
-    const response = (error as { response?: { data?: { detail?: string }; status?: number } }).response;
-    if (response?.data?.detail) return response.data.detail;
+    const response = (error as { response?: { data?: { detail?: unknown }; status?: number } }).response;
+    const detail = response?.data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      const messages = detail
+        .map((d) => (d && typeof d === 'object' && 'msg' in d ? String((d as { msg: unknown }).msg) : null))
+        .filter((m): m is string => Boolean(m));
+      if (messages.length) return messages.join('; ');
+    }
     if (response?.status === 401 || response?.status === 403) return 'Your session no longer has access.';
   }
   if (
@@ -236,7 +243,7 @@ export const CompanyHeadDashboardPage = () => {
     try {
       const data = await reportsApi.list({
         page: 1,
-        pageSize: 100,
+        pageSize: 50,
         departmentId: reportDepartmentFilter === 'all' ? undefined : Number(reportDepartmentFilter),
       });
       setReportArchive(data.items);
