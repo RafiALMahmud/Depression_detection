@@ -1460,14 +1460,14 @@ export const DepartmentManagerDashboardPage = () => {
     if (alert.condition_type === 'A') {
       return (
         <div className="text-sm">
-          <p>
+          <p className="mt-1">
             <strong>Employee:</strong> {String(d.employee_name ?? `#${d.employee_id ?? '?'}`)}
           </p>
-          <p>
+          <p className="mt-1">
             Last two completed sessions were both in the <strong>severe</strong> tier.
           </p>
           {Array.isArray(d.scores) && (
-            <p>Composite scores: {(d.scores as number[]).join(', ')}</p>
+            <p className="mt-1">Composite scores: {(d.scores as number[]).join(', ')}</p>
           )}
         </div>
       );
@@ -1475,11 +1475,11 @@ export const DepartmentManagerDashboardPage = () => {
     if (alert.condition_type === 'B') {
       return (
         <div className="text-sm">
-          <p>Department weekly average composite exceeded the moderate boundary (&gt;25) for two consecutive weeks.</p>
-          <p>
+          <p className="mt-1">Department weekly average composite exceeded the moderate boundary (&gt;25) for two consecutive weeks.</p>
+          <p className="mt-1">
             <strong>{String(d.week1_label ?? 'Previous week')}:</strong> {String(d.week1_avg ?? '—')}
           </p>
-          <p>
+          <p className="mt-1">
             <strong>{String(d.week2_label ?? 'Current week')}:</strong> {String(d.week2_avg ?? '—')}
           </p>
         </div>
@@ -1487,7 +1487,7 @@ export const DepartmentManagerDashboardPage = () => {
     }
     return (
       <div className="text-sm">
-        <p>
+        <p className="mt-1">
           <strong>{String(d.non_compliant_count ?? '?')}</strong> of {String(d.total_employees ?? '?')} employees
           non-compliant this week ({String(d.percentage ?? '?')}% &gt; {String(d.threshold_percentage ?? 20)}%).
         </p>
@@ -1497,8 +1497,8 @@ export const DepartmentManagerDashboardPage = () => {
 
   const renderAlertsSection = () => {
     return (
-      <section className="mw-card">
-        <header className="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <section className="mw-card p-6">
+        <header className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h2>Escalation Alerts</h2>
             <p className="mw-muted">Automated escalations generated from depression-detection sessions.</p>
@@ -1506,21 +1506,21 @@ export const DepartmentManagerDashboardPage = () => {
           <div className="flex gap-2">
             <button
               type="button"
-              className={alertView === 'active' ? 'mw-btn-primary' : 'mw-btn-secondary'}
+              className={alertView === 'active' ? 'mw-btn-primary' : 'mw-btn-ghost'}
               onClick={() => setAlertView('active')}
             >
               Active ({alerts.length})
             </button>
             <button
               type="button"
-              className={alertView === 'history' ? 'mw-btn-primary' : 'mw-btn-secondary'}
+              className={alertView === 'history' ? 'mw-btn-primary' : 'mw-btn-ghost'}
               onClick={() => setAlertView('history')}
             >
               History
             </button>
             <button
               type="button"
-              className="mw-btn-secondary"
+              className="mw-btn-ghost"
               onClick={() => {
                 void loadAlerts();
                 if (alertView === 'history') void loadAlertHistory();
@@ -1549,7 +1549,7 @@ export const DepartmentManagerDashboardPage = () => {
               {alerts.map((alert) => (
                 <article
                   key={alert.id}
-                  className="mw-card"
+                  className="mw-card p-5"
                   style={{ borderLeft: '4px solid #dc2626', background: '#fef2f2' }}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1590,7 +1590,7 @@ export const DepartmentManagerDashboardPage = () => {
               {alertHistory.map((alert) => (
                 <article
                   key={alert.id}
-                  className="mw-card"
+                  className="mw-card p-5"
                   style={{
                     borderLeft: alert.is_acknowledged ? '4px solid #16a34a' : '4px solid #dc2626',
                   }}
