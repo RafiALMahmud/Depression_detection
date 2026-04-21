@@ -8,6 +8,7 @@ from app.api.routes import (
     department_managers,
     departments,
     employees,
+    escalation_alerts,
     invitations,
     questionnaire,
     reports,
@@ -30,3 +31,4 @@ api_router.include_router(invitations.router)
 api_router.include_router(vision.router)
 api_router.include_router(questionnaire.router)
 api_router.include_router(reports.router)
+api_router.include_router(escalation_alerts.router)

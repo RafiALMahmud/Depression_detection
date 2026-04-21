@@ -40,6 +40,9 @@ import type {
   ScoringConfig,
   SymptomFrequency,
   StreakInfo,
+  EscalationAlert,
+  EscalationAlertListResponse,
+  EscalationAlertHistoryResponse,
 } from '../types/domain';
 
 export interface ListQuery {
@@ -700,6 +703,23 @@ export const questionnaireApi = {
   },
   streak: async (): Promise<StreakInfo> => {
     const response = await apiClient.get<StreakInfo>('/questionnaire/streak');
+    return response.data;
+  },
+};
+
+export const escalationAlertsApi = {
+  list: async (): Promise<EscalationAlertListResponse> => {
+    const response = await apiClient.get<EscalationAlertListResponse>('/escalation-alerts');
+    return response.data;
+  },
+  acknowledge: async (alertId: number): Promise<EscalationAlert> => {
+    const response = await apiClient.post<EscalationAlert>(`/escalation-alerts/${alertId}/acknowledge`);
+    return response.data;
+  },
+  history: async (page = 1, pageSize = 20): Promise<EscalationAlertHistoryResponse> => {
+    const response = await apiClient.get<EscalationAlertHistoryResponse>('/escalation-alerts/history', {
+      params: { page, page_size: pageSize },
+    });
     return response.data;
   },
 };

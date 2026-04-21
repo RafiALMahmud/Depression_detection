@@ -19,6 +19,7 @@ import {
 import {
   dashboardApi,
   employeesApi,
+  escalationAlertsApi,
   invitationsApi,
   reportsApi,
   type EmployeePayload,
@@ -27,7 +28,7 @@ import {
   type ReportSubmitPayload,
 } from '../api/services';
 import { DataTable } from '../components/dashboard/DataTable';
-import type { EmployeeComplianceEntry, FlaggedEmployeeEntry, ReportPreview, ReportRead } from '../types/domain';
+import type { EmployeeComplianceEntry, EscalationAlert, FlaggedEmployeeEntry, ReportPreview, ReportRead } from '../types/domain';
 import { useAuth } from '../auth/AuthContext';
 import { AppShell } from '../components/dashboard/AppShell';
 import { EntitySection } from '../components/dashboard/EntitySection';
@@ -140,6 +141,14 @@ export const DepartmentManagerDashboardPage = () => {
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
+  const [alerts, setAlerts] = useState<EscalationAlert[]>([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertsError, setAlertsError] = useState<string | null>(null);
+  const [alertHistory, setAlertHistory] = useState<EscalationAlert[]>([]);
+  const [alertHistoryLoading, setAlertHistoryLoading] = useState(false);
+  const [acknowledgingId, setAcknowledgingId] = useState<number | null>(null);
+  const [alertView, setAlertView] = useState<'active' | 'history'>('active');
+
   const [reportPreview, setReportPreview] = useState<ReportPreview | null>(null);
   const [reportPreviewLoading, setReportPreviewLoading] = useState(false);
   const [reportPreviewError, setReportPreviewError] = useState<string | null>(null);
@@ -233,6 +242,63 @@ export const DepartmentManagerDashboardPage = () => {
     if (!allowed) return;
     void loadSummary();
   }, [allowed, loadSummary]);
+
+  const loadAlerts = useCallback(async () => {
+    setAlertsLoading(true);
+    setAlertsError(null);
+    try {
+      const res = await escalationAlertsApi.list();
+      setAlerts(res.alerts);
+    } catch (error) {
+      setAlertsError(getApiErrorMessage(error, 'Failed to load escalation alerts'));
+    } finally {
+      setAlertsLoading(false);
+    }
+  }, []);
+
+  const loadAlertHistory = useCallback(async () => {
+    setAlertHistoryLoading(true);
+    try {
+      const res = await escalationAlertsApi.history(1, 50);
+      setAlertHistory(res.items);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to load alert history'));
+    } finally {
+      setAlertHistoryLoading(false);
+    }
+  }, []);
+
+  const handleAcknowledgeAlert = useCallback(
+    async (alertId: number) => {
+      setAcknowledgingId(alertId);
+      try {
+        await escalationAlertsApi.acknowledge(alertId);
+        setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+        toast.success('Alert acknowledged');
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, 'Failed to acknowledge alert'));
+      } finally {
+        setAcknowledgingId(null);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!allowed) return;
+    void loadAlerts();
+    const interval = window.setInterval(() => {
+      void loadAlerts();
+    }, 60000);
+    return () => window.clearInterval(interval);
+  }, [allowed, loadAlerts]);
+
+  useEffect(() => {
+    if (!allowed) return;
+    if (activeSectionId === 'alerts' && alertView === 'history') {
+      void loadAlertHistory();
+    }
+  }, [activeSectionId, alertView, allowed, loadAlertHistory]);
 
   useEffect(() => {
     if (!allowed) return;
@@ -744,6 +810,10 @@ export const DepartmentManagerDashboardPage = () => {
 
   const sections = [
     { id: 'overview', label: 'Overview' },
+    {
+      id: 'alerts',
+      label: alerts.length > 0 ? `🔔 Alerts (${alerts.length})` : 'Alerts',
+    },
     { id: 'employees', label: 'Employees' },
     { id: 'compliance', label: 'Compliance' },
     { id: 'reports', label: 'Reports' },
@@ -1379,9 +1449,188 @@ export const DepartmentManagerDashboardPage = () => {
     );
   };
 
+  const conditionTitle = (type: 'A' | 'B' | 'C'): string => {
+    if (type === 'A') return 'Sustained Severe Depression (Condition A)';
+    if (type === 'B') return 'Department-Wide Decline (Condition B)';
+    return 'High Non-Compliance (Condition C)';
+  };
+
+  const renderAlertDetails = (alert: EscalationAlert): ReactNode => {
+    const d = (alert.details ?? {}) as Record<string, unknown>;
+    if (alert.condition_type === 'A') {
+      return (
+        <div className="text-sm">
+          <p>
+            <strong>Employee:</strong> {String(d.employee_name ?? `#${d.employee_id ?? '?'}`)}
+          </p>
+          <p>
+            Last two completed sessions were both in the <strong>severe</strong> tier.
+          </p>
+          {Array.isArray(d.scores) && (
+            <p>Composite scores: {(d.scores as number[]).join(', ')}</p>
+          )}
+        </div>
+      );
+    }
+    if (alert.condition_type === 'B') {
+      return (
+        <div className="text-sm">
+          <p>Department weekly average composite exceeded the moderate boundary (&gt;25) for two consecutive weeks.</p>
+          <p>
+            <strong>{String(d.week1_label ?? 'Previous week')}:</strong> {String(d.week1_avg ?? '—')}
+          </p>
+          <p>
+            <strong>{String(d.week2_label ?? 'Current week')}:</strong> {String(d.week2_avg ?? '—')}
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="text-sm">
+        <p>
+          <strong>{String(d.non_compliant_count ?? '?')}</strong> of {String(d.total_employees ?? '?')} employees
+          non-compliant this week ({String(d.percentage ?? '?')}% &gt; {String(d.threshold_percentage ?? 20)}%).
+        </p>
+      </div>
+    );
+  };
+
+  const renderAlertsSection = () => {
+    return (
+      <section className="mw-card">
+        <header className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h2>Escalation Alerts</h2>
+            <p className="mw-muted">Automated escalations generated from depression-detection sessions.</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={alertView === 'active' ? 'mw-btn-primary' : 'mw-btn-secondary'}
+              onClick={() => setAlertView('active')}
+            >
+              Active ({alerts.length})
+            </button>
+            <button
+              type="button"
+              className={alertView === 'history' ? 'mw-btn-primary' : 'mw-btn-secondary'}
+              onClick={() => setAlertView('history')}
+            >
+              History
+            </button>
+            <button
+              type="button"
+              className="mw-btn-secondary"
+              onClick={() => {
+                void loadAlerts();
+                if (alertView === 'history') void loadAlertHistory();
+              }}
+            >
+              Refresh
+            </button>
+          </div>
+        </header>
+
+        {alertView === 'active' && (
+          <>
+            {alertsLoading && <div className="mw-loading-card">Loading alerts...</div>}
+            {alertsError && !alertsLoading && (
+              <div className="mw-empty-state">
+                <p>{alertsError}</p>
+              </div>
+            )}
+            {!alertsLoading && !alertsError && alerts.length === 0 && (
+              <div className="mw-empty-state">
+                <h3>No active alerts</h3>
+                <p>Your department has no unacknowledged escalations right now.</p>
+              </div>
+            )}
+            <div className="flex flex-col gap-3">
+              {alerts.map((alert) => (
+                <article
+                  key={alert.id}
+                  className="mw-card"
+                  style={{ borderLeft: '4px solid #dc2626', background: '#fef2f2' }}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <span className="mw-badge-danger">Condition {alert.condition_type}</span>
+                      <h3 className="mt-2">{conditionTitle(alert.condition_type)}</h3>
+                      <p className="mw-muted text-xs">
+                        Raised {new Date(alert.created_at).toLocaleString()} ·{' '}
+                        {alert.email_sent ? 'Email sent' : 'Email not sent'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="mw-btn-primary"
+                      disabled={acknowledgingId === alert.id}
+                      onClick={() => void handleAcknowledgeAlert(alert.id)}
+                    >
+                      {acknowledgingId === alert.id ? 'Acknowledging...' : 'Acknowledge'}
+                    </button>
+                  </div>
+                  <div className="mt-3">{renderAlertDetails(alert)}</div>
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+
+        {alertView === 'history' && (
+          <>
+            {alertHistoryLoading && <div className="mw-loading-card">Loading history...</div>}
+            {!alertHistoryLoading && alertHistory.length === 0 && (
+              <div className="mw-empty-state">
+                <h3>No alert history</h3>
+                <p>No escalation alerts have been generated for your department yet.</p>
+              </div>
+            )}
+            <div className="flex flex-col gap-2">
+              {alertHistory.map((alert) => (
+                <article
+                  key={alert.id}
+                  className="mw-card"
+                  style={{
+                    borderLeft: alert.is_acknowledged ? '4px solid #16a34a' : '4px solid #dc2626',
+                  }}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <span
+                        className={alert.is_acknowledged ? 'mw-badge-success' : 'mw-badge-danger'}
+                      >
+                        Condition {alert.condition_type} ·{' '}
+                        {alert.is_acknowledged ? 'Acknowledged' : 'Unacknowledged'}
+                      </span>
+                      <h3 className="mt-2">{conditionTitle(alert.condition_type)}</h3>
+                      <p className="mw-muted text-xs">
+                        Raised {new Date(alert.created_at).toLocaleString()}
+                        {alert.is_acknowledged && alert.acknowledged_at
+                          ? ` · Acknowledged ${new Date(alert.acknowledged_at).toLocaleString()}${
+                              alert.acknowledged_by_name ? ` by ${alert.acknowledged_by_name}` : ''
+                            }`
+                          : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3">{renderAlertDetails(alert)}</div>
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+    );
+  };
+
   const renderSection = () => {
     if (activeSectionId === 'overview') {
       return renderOverview();
+    }
+
+    if (activeSectionId === 'alerts') {
+      return renderAlertsSection();
     }
 
     if (!summary) {

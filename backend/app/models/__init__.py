@@ -6,6 +6,7 @@ from app.models.company_head import CompanyHead
 from app.models.department import Department
 from app.models.department_manager import DepartmentManager
 from app.models.employee import Employee
+from app.models.escalation_alert import EscalationAlert
 from app.models.invitation import Invitation
 from app.models.questionnaire_response import QuestionnaireResponse
 from app.models.scoring_config import ScoringConfig
@@ -21,6 +22,7 @@ __all__ = [
     "Department",
     "DepartmentManager",
     "Employee",
+    "EscalationAlert",
     "Invitation",
     "QuestionnaireResponse",
     "ScoringConfig",

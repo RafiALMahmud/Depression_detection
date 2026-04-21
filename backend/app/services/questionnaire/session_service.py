@@ -243,6 +243,14 @@ def submit_answer(
     session.questions_asked = build_question_sequence(answers)
     update_compliance_status(db, employee_id)
 
+    # Escalation alert checks (never block completion on failure)
+    try:
+        from app.services.escalation import run_escalation_checks_for_session
+        run_escalation_checks_for_session(db, session)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("Escalation checks failed for session %s", session.id)
+
     return {
         "is_complete": True,
         "next_question": None,

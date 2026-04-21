@@ -27,10 +27,14 @@ Pillow==10.3.0                     # Image processing utility
 # ------------------------------------------------------------
 # Deep Learning — CNN Classifier (FER-2013 / RAF-DB)
 # ------------------------------------------------------------
+# PyTorch — Mac uses standard builds, Windows/Linux use CPU-only builds
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.3.0+cpu                   # PyTorch CPU-only build (no CUDA overhead)
-torchvision==0.18.0+cpu            # Image transforms & pretrained CNNs (CPU)
-torchaudio==2.3.0+cpu              # Required for Whisper (CPU)
+torch==2.3.0; sys_platform == "darwin"
+torch==2.3.0+cpu; sys_platform != "darwin"
+torchvision==0.18.0; sys_platform == "darwin"
+torchvision==0.18.0+cpu; sys_platform != "darwin"
+torchaudio==2.3.0; sys_platform == "darwin"
+torchaudio==2.3.0+cpu; sys_platform != "darwin"
 numpy==1.26.4                      # Numerical computing (keep <2.0 for torch compat)
 scikit-learn==1.5.0                # Metrics, preprocessing, label encoding
 scipy==1.13.1                      # Signal processing utilities

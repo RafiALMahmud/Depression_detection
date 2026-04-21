@@ -459,3 +459,28 @@ export interface ScoringConfig {
   updated_by_user_id: number | null;
   updated_at: string | null;
 }
+
+export type EscalationConditionType = 'A' | 'B' | 'C';
+
+export interface EscalationAlert {
+  id: number;
+  department_id: number;
+  company_id: number;
+  condition_type: EscalationConditionType;
+  details: Record<string, unknown> | null;
+  is_acknowledged: boolean;
+  acknowledged_at: string | null;
+  acknowledged_by_name: string | null;
+  email_sent: boolean;
+  created_at: string;
+}
+
+export interface EscalationAlertListResponse {
+  alerts: EscalationAlert[];
+  unacknowledged_count: number;
+}
+
+export interface EscalationAlertHistoryResponse {
+  items: EscalationAlert[];
+  total: number;
+}

@@ -21,3 +21,8 @@ Thumbs.db
 *.log
 *.out
 *.err
+.claude/
+.claude/
+.vscode/
+.claude/
+.vscode/

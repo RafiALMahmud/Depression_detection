@@ -19,6 +19,7 @@ from app.models import (  # noqa: F401
     Department,
     DepartmentManager,
     Employee,
+    EscalationAlert,
     Invitation,
     QuestionnaireResponse,
     ScoringConfig,
