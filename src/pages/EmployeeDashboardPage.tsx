@@ -188,6 +188,15 @@ const formatScore = (value: number | null | undefined): string => {
   return value.toFixed(2);
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const daysSinceIsoDate = (value: string | null | undefined): number | null => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return Math.max(0, Math.floor((Date.now() - parsed.getTime()) / DAY_MS));
+};
+
 const getCameraMessage = (state: CameraState, detail: string | null): string => {
   if (detail) return detail;
   switch (state) {
@@ -737,6 +746,8 @@ export const EmployeeDashboardPage = () => {
   const renderOverview = () => {
     const completedSessions = sessionHistory.filter((s) => s.status === 'completed');
     const latestSession = completedSessions[0] ?? null;
+    const latestSessionAt = latestSession?.completed_at ?? latestSession?.created_at ?? null;
+    const daysSinceLastCheckIn = daysSinceIsoDate(latestSessionAt);
 
     return (
       <section className="mw-entity-layout">
@@ -751,6 +762,7 @@ export const EmployeeDashboardPage = () => {
 
         <section className="mw-stat-grid">
           <StatsCard label="Sessions Completed" value={completedSessions.length} />
+          <StatsCard label="Days Since Last Check-In" value={daysSinceLastCheckIn ?? 0} />
           <StatsCard label="Current Streak (weeks)" value={streakInfo?.current_streak_weeks ?? 0} />
           <StatsCard label="Longest Streak (weeks)" value={streakInfo?.longest_streak_weeks ?? 0} />
           <StatsCard label="Scan Duration (s)" value={30} />
@@ -796,7 +808,10 @@ export const EmployeeDashboardPage = () => {
             <article className="mw-card mw-info-panel">
               <p className="mw-entity-kicker">Most Recent Session</p>
               <h3>Last Check-In</h3>
-              <p>{latestSession.created_at ? new Date(latestSession.created_at).toLocaleDateString() : '—'}</p>
+              <p>{latestSessionAt ? new Date(latestSessionAt).toLocaleDateString() : '-'}</p>
+              {daysSinceLastCheckIn !== null && (
+                <p className="mw-helper-text">Days since last check-in: {daysSinceLastCheckIn}</p>
+              )}
               <div className="mw-inline-summary" style={{ marginTop: '8px' }}>
                 <span className={`mw-badge ${tierConfig(latestSession.threshold_tier).badge}`}>
                   {tierConfig(latestSession.threshold_tier).label}

@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     auto_seed: bool = True
     seed_send_emails: bool = False
+    checkin_reminders_enabled: bool = True
+    checkin_reminder_interval_days: int = 3
+    checkin_reminder_lead_days: int = 1
+    checkin_reminder_poll_seconds: int = 60 * 60
 
     vision_model_weights_path: str = "backend/app/models/efficientface_rafdb.pth"
     vision_model_architecture: str = "efficientface"
@@ -59,7 +63,13 @@ class Settings(BaseSettings):
             raise ValueError("VISION_CLASS_LABELS must contain at least one label")
         return labels
 
-    @field_validator("debug", "serve_frontend", "vision_strict_model_load", mode="before")
+    @field_validator(
+        "debug",
+        "serve_frontend",
+        "vision_strict_model_load",
+        "checkin_reminders_enabled",
+        mode="before",
+    )
     @classmethod
     def normalize_debug_value(cls, value: object) -> object:
         if isinstance(value, str):
@@ -68,6 +78,13 @@ class Settings(BaseSettings):
                 return False
             if normalized in {"debug", "dev", "development", "on", "true", "1", "yes"}:
                 return True
+        return value
+
+    @field_validator("checkin_reminder_interval_days", "checkin_reminder_lead_days", "checkin_reminder_poll_seconds")
+    @classmethod
+    def validate_positive_values(cls, value: int, info) -> int:
+        if value < 1:
+            raise ValueError(f"{info.field_name} must be at least 1")
         return value
 
     @field_validator("vision_classifier_hidden_dim", mode="before")

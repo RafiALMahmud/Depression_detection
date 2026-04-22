@@ -1,3 +1,5 @@
+import logging
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, status
@@ -9,10 +11,12 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.db.init_db import initialize_database
 from app.db.session import SessionLocal
+from app.services.checkin_reminders import run_due_checkin_reminders
 
 # Import models so SQLAlchemy metadata includes all tables for create_all.
 from app.models import (  # noqa: F401
     AuditLog,
+    CheckInReminderLog,
     CheckInSession,
     Company,
     CompanyHead,
@@ -28,6 +32,9 @@ from app.models import (  # noqa: F401
 )
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
+logger = logging.getLogger(__name__)
+_reminder_worker_stop = threading.Event()
+_reminder_worker_thread: threading.Thread | None = None
 
 configured_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
 local_dev_origin_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
@@ -53,10 +60,53 @@ if should_serve_frontend and frontend_assets_dir.exists():
     app.mount("/assets", StaticFiles(directory=frontend_assets_dir), name="frontend-assets")
 
 
+def _run_reminder_cycle() -> int:
+    with SessionLocal() as db:
+        sent_count = run_due_checkin_reminders(db)
+        db.commit()
+        return sent_count
+
+
+def _reminder_worker_loop() -> None:
+    while not _reminder_worker_stop.wait(settings.checkin_reminder_poll_seconds):
+        try:
+            sent_count = _run_reminder_cycle()
+            if sent_count:
+                logger.info("MindWell reminder worker sent %s email reminder(s).", sent_count)
+        except Exception:  # pragma: no cover - defensive background-task guard
+            logger.exception("MindWell reminder worker failed to run reminder cycle.")
+
+
 @app.on_event("startup")
 def on_startup() -> None:
+    global _reminder_worker_thread
     with SessionLocal() as db:
         initialize_database(db)
+    if settings.checkin_reminders_enabled:
+        try:
+            sent_count = _run_reminder_cycle()
+            if sent_count:
+                logger.info("MindWell startup reminder cycle sent %s email reminder(s).", sent_count)
+        except Exception:
+            logger.exception("MindWell startup reminder cycle failed.")
+
+        if _reminder_worker_thread is None or not _reminder_worker_thread.is_alive():
+            _reminder_worker_stop.clear()
+            _reminder_worker_thread = threading.Thread(
+                target=_reminder_worker_loop,
+                name="mindwell-reminder-worker",
+                daemon=True,
+            )
+            _reminder_worker_thread.start()
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    global _reminder_worker_thread
+    _reminder_worker_stop.set()
+    if _reminder_worker_thread and _reminder_worker_thread.is_alive():
+        _reminder_worker_thread.join(timeout=2)
+    _reminder_worker_thread = None
 
 
 @app.get("/health")

@@ -1,4 +1,5 @@
 from app.models.audit_log import AuditLog
+from app.models.check_in_reminder_log import CheckInReminderLog
 from app.models.report import Report
 from app.models.check_in_session import CheckInSession
 from app.models.company import Company
@@ -15,6 +16,7 @@ from app.models.user import User
 
 __all__ = [
     "AuditLog",
+    "CheckInReminderLog",
     "Report",
     "CheckInSession",
     "Company",

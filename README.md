@@ -131,6 +131,12 @@ Copy-Item backend\.env.example backend\.env
 
 Then edit `backend\.env` (DB credentials, JWT secrets, SMTP config).
 
+Optional reminder settings (employee check-in email reminders):
+- `CHECKIN_REMINDERS_ENABLED=true`
+- `CHECKIN_REMINDER_INTERVAL_DAYS=3` (next session cadence)
+- `CHECKIN_REMINDER_LEAD_DAYS=1` (send reminder 1 day before next session)
+- `CHECKIN_REMINDER_POLL_SECONDS=3600` (background reminder scan interval)
+
 ### 5. Prepare database
 
 ```powershell
