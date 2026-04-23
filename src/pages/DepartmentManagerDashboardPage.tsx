@@ -21,6 +21,7 @@ import {
   employeesApi,
   escalationAlertsApi,
   invitationsApi,
+  peerSupportApi,
   reportsApi,
   type EmployeePayload,
   type EmployeeUpdatePayload,
@@ -40,6 +41,7 @@ import type {
   DepartmentManagerSummary,
   EmployeeProfile,
   InvitationListItem,
+  PeerSupportThread,
 } from '../types/domain';
 import { getDashboardPathByRole } from '../utils/roles';
 
@@ -161,6 +163,11 @@ export const DepartmentManagerDashboardPage = () => {
   const [reportView, setReportView] = useState<'builder' | 'archive'>('builder');
   const [selectedReport, setSelectedReport] = useState<ReportRead | null>(null);
   const [reportPdfDownloadingId, setReportPdfDownloadingId] = useState<number | null>(null);
+
+  const [communityThreads, setCommunityThreads] = useState<PeerSupportThread[]>([]);
+  const [communityLoading, setCommunityLoading] = useState(false);
+  const [communityError, setCommunityError] = useState<string | null>(null);
+  const [communityDeletingThreadId, setCommunityDeletingThreadId] = useState<number | null>(null);
 
   const summaryRunRef = useRef(0);
   const analyticsRunRef = useRef(0);
@@ -454,6 +461,42 @@ export const DepartmentManagerDashboardPage = () => {
       setReportArchiveLoading(false);
     }
   }, []);
+
+  const loadCommunityThreads = useCallback(async () => {
+    setCommunityLoading(true);
+    setCommunityError(null);
+    try {
+      const response = await peerSupportApi.listThreads(1, 100, true);
+      setCommunityThreads(response.items);
+    } catch (error) {
+      setCommunityError(getApiErrorMessage(error, 'Failed to load community threads.'));
+    } finally {
+      setCommunityLoading(false);
+    }
+  }, []);
+
+  const handleDeleteCommunityThread = useCallback(
+    async (threadId: number) => {
+      setCommunityDeletingThreadId(threadId);
+      try {
+        await peerSupportApi.deleteThread(threadId);
+        toast.success('Thread deleted.');
+        await loadCommunityThreads();
+      } catch (error) {
+        toast.error(getApiErrorMessage(error, 'Failed to delete this thread.'));
+      } finally {
+        setCommunityDeletingThreadId((current) => (current === threadId ? null : current));
+      }
+    },
+    [loadCommunityThreads],
+  );
+
+  useEffect(() => {
+    if (!allowed) return;
+    if (activeSectionId === 'community-board' && !communityLoading && communityThreads.length === 0 && !communityError) {
+      void loadCommunityThreads();
+    }
+  }, [activeSectionId, allowed, communityError, communityLoading, communityThreads.length, loadCommunityThreads]);
 
   useEffect(() => {
     if (activeSectionId === 'reports' && !reportPreview && !reportPreviewLoading) {
@@ -815,6 +858,7 @@ export const DepartmentManagerDashboardPage = () => {
       label: alerts.length > 0 ? `🔔 Alerts (${alerts.length})` : 'Alerts',
     },
     { id: 'employees', label: 'Employees' },
+    { id: 'community-board', label: 'Community Board' },
     { id: 'compliance', label: 'Compliance' },
     { id: 'reports', label: 'Reports' },
     { id: 'detection-analytics', label: 'Detection Analytics' },
@@ -1624,6 +1668,93 @@ export const DepartmentManagerDashboardPage = () => {
     );
   };
 
+  const renderCommunityBoardSection = () => {
+    return (
+      <section className="mw-entity-layout">
+        <div className="mw-card mw-entity-header">
+          <div className="mw-entity-header-row">
+            <div>
+              <p className="mw-entity-kicker">Department Moderation</p>
+              <h2 className="mw-entity-title">Community Threads</h2>
+              <p className="mw-entity-description">
+                Review anonymous threads from your department and remove posts when moderation is required.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="mw-btn-ghost"
+              onClick={() => {
+                void loadCommunityThreads();
+              }}
+              disabled={communityLoading}
+            >
+              {communityLoading ? 'Refreshing...' : 'Refresh Threads'}
+            </button>
+          </div>
+        </div>
+
+        {communityError ? (
+          <div className="mw-scan-message-card danger">
+            <h4>Community threads unavailable</h4>
+            <p>{communityError}</p>
+          </div>
+        ) : null}
+
+        {communityLoading ? <div className="mw-card mw-loading-card">Loading community threads...</div> : null}
+
+        {!communityLoading && !communityError && communityThreads.length === 0 ? (
+          <div className="mw-card mw-empty-state">
+            <h3>No threads available</h3>
+            <p>There are no active anonymous threads from your department yet.</p>
+          </div>
+        ) : null}
+
+        {!communityLoading &&
+          communityThreads.map((thread) => (
+            <article key={thread.id} className="mw-card mw-community-thread-card">
+              <div className="mw-community-thread-head">
+                <div>
+                  <span className="mw-badge mw-badge-muted">{thread.alias}</span>
+                  <p className="mw-helper-text" style={{ marginTop: '6px' }}>
+                    Posted {new Date(thread.created_at).toLocaleString()}
+                  </p>
+                </div>
+                <div className="mw-inline-summary">
+                  <span className="mw-badge mw-badge-info">{thread.reply_count} replies</span>
+                  <button
+                    type="button"
+                    className="mw-btn-chip mw-chip-danger"
+                    onClick={() => {
+                      void handleDeleteCommunityThread(thread.id);
+                    }}
+                    disabled={communityDeletingThreadId === thread.id || !thread.can_delete}
+                  >
+                    {communityDeletingThreadId === thread.id ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
+              </div>
+
+              <p className="mw-community-thread-content">{thread.content}</p>
+
+              {thread.replies.length > 0 ? (
+                <div className="mw-community-replies">
+                  {thread.replies.slice(0, 3).map((reply) => (
+                    <div key={reply.id} className="mw-community-reply-item">
+                      <div className="mw-community-reply-head">
+                        <span className="mw-badge mw-badge-muted">{reply.alias}</span>
+                        <span className="mw-helper-text">{new Date(reply.created_at).toLocaleString()}</span>
+                      </div>
+                      <p>{reply.content}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+          ))}
+      </section>
+    );
+  };
+
   const renderSection = () => {
     if (activeSectionId === 'overview') {
       return renderOverview();
@@ -1631,6 +1762,10 @@ export const DepartmentManagerDashboardPage = () => {
 
     if (activeSectionId === 'alerts') {
       return renderAlertsSection();
+    }
+
+    if (activeSectionId === 'community-board') {
+      return renderCommunityBoardSection();
     }
 
     if (!summary) {

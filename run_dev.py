@@ -8,6 +8,8 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 
@@ -176,12 +178,49 @@ def stop_process(name: str, process: subprocess.Popen) -> None:
     print(f"[runner] Stopped {name}.")
 
 
+def wait_for_backend_ready(backend_process: subprocess.Popen, port: int, timeout_seconds: float = 30.0) -> bool:
+    probe_url = f"http://127.0.0.1:{port}/api/v1/auth/me"
+    deadline = time.monotonic() + timeout_seconds
+
+    while time.monotonic() < deadline:
+        if backend_process.poll() is not None:
+            return False
+
+        try:
+            with urllib.request.urlopen(probe_url, timeout=1.5) as response:  # noqa: S310
+                if 200 <= response.status < 500:
+                    return True
+        except urllib.error.HTTPError as exc:
+            if exc.code in {401, 403, 404, 405}:
+                return True
+        except Exception:
+            pass
+
+        time.sleep(0.4)
+
+    return False
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run MindWell frontend + backend in development mode.")
     parser.add_argument("--backend-host", default="0.0.0.0")
-    parser.add_argument("--backend-port", type=int, default=8010)
+    parser.add_argument("--backend-port", type=int, default=8000)
     parser.add_argument("--frontend-host", default="localhost")
     parser.add_argument("--frontend-port", type=int, default=5173)
+    reload_group = parser.add_mutually_exclusive_group()
+    reload_group.add_argument(
+        "--reload",
+        dest="reload",
+        action="store_true",
+        help="Enable backend auto-reload (can be unstable on some Windows setups).",
+    )
+    reload_group.add_argument(
+        "--no-reload",
+        dest="reload",
+        action="store_false",
+        help="Disable backend auto-reload.",
+    )
+    parser.set_defaults(reload=not IS_WINDOWS)
     return parser.parse_args()
 
 
@@ -217,12 +256,13 @@ def main() -> int:
         "-m",
         "uvicorn",
         "app.main:app",
-        "--reload",
         "--host",
         args.backend_host,
         "--port",
         str(args.backend_port),
     ]
+    if args.reload:
+        backend_command.append("--reload")
     frontend_command = [
         npm_exe,
         "run",
@@ -237,6 +277,7 @@ def main() -> int:
     print("[runner] Starting MindWell development stack...")
     print(f"[runner] Backend:  http://localhost:{args.backend_port}")
     print(f"[runner] Frontend: http://localhost:{args.frontend_port}")
+    print(f"[runner] Backend reload: {'on' if args.reload else 'off'}")
     print("[runner] Press Ctrl+C once to stop both.")
 
     backend_process = None
@@ -246,7 +287,13 @@ def main() -> int:
 
     try:
         backend_process, backend_thread = start_process("backend", backend_command, backend_dir, backend_env)
-        time.sleep(0.6)
+        if not wait_for_backend_ready(backend_process, args.backend_port):
+            print(
+                "[ERROR] Backend failed to become ready.\n"
+                "Check backend logs above. Common causes are PostgreSQL not running or invalid DATABASE_URL in backend/.env.",
+                file=sys.stderr,
+            )
+            return 1
         frontend_process, frontend_thread = start_process("frontend", frontend_command, frontend_dir, frontend_env)
 
         while True:

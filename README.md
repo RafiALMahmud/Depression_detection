@@ -54,10 +54,18 @@ npm run dev:full
 ```
 
 What this starts:
-- FastAPI backend with reload on `http://localhost:8000`
+- FastAPI backend on `http://localhost:8000`
+- Backend reload is `off` by default on Windows for stability (`on` by default on non-Windows)
 - React dev server on `http://localhost:5173`
 - Shared logs in one terminal
 - Ctrl+C stops both processes
+
+Optional reload flags:
+
+```powershell
+python run_dev.py --reload
+python run_dev.py --no-reload
+```
 
 ## One Command (Production-like Local)
 
@@ -151,6 +159,10 @@ cd D:\CSE471
 .\.venv\Scripts\Activate.ps1
 python run_dev.py
 ```
+
+If UI shows `Cannot reach the API server`:
+- Confirm PostgreSQL is running and matches `DATABASE_URL` in `backend\.env`
+- Run `python run_dev.py --no-reload` on Windows if auto-reload causes startup instability
 
 ## Login and Seeded Accounts
 

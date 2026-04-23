@@ -4,12 +4,14 @@ from app.api.routes import (
     auth,
     companies,
     company_heads,
+    consultations,
     dashboard,
     department_managers,
     departments,
     employees,
     escalation_alerts,
     invitations,
+    peer_support,
     questionnaire,
     reports,
     super_admins,
@@ -28,6 +30,8 @@ api_router.include_router(departments.router)
 api_router.include_router(department_managers.router)
 api_router.include_router(employees.router)
 api_router.include_router(invitations.router)
+api_router.include_router(peer_support.router)
+api_router.include_router(consultations.router)
 api_router.include_router(vision.router)
 api_router.include_router(questionnaire.router)
 api_router.include_router(reports.router)

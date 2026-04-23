@@ -14,7 +14,7 @@ import {
   Cell,
 } from 'recharts';
 
-import { questionnaireApi, visionApi } from '../api/services';
+import { consultationsApi, peerSupportApi, questionnaireApi, visionApi } from '../api/services';
 import { useAuth } from '../auth/AuthContext';
 import { AppShell } from '../components/dashboard/AppShell';
 import { StatsCard } from '../components/dashboard/StatsCard';
@@ -22,7 +22,11 @@ import { QuestionnaireFlow } from '../components/questionnaire/QuestionnaireFlow
 import type { CompletionSummary } from '../components/questionnaire/QuestionnaireFlow';
 import type {
   DepressionLogEntry,
+  ConsultationRequest,
+  ConsultationTeamConfig,
   LiveEmotionResult,
+  PeerSupportReactionType,
+  PeerSupportThread,
   SessionListItem,
   StreakInfo,
   SymptomFrequency,
@@ -31,7 +35,7 @@ import type {
 } from '../types/domain';
 import { getDashboardPathByRole } from '../utils/roles';
 
-type DashboardSectionId = 'overview' | 'facial-scan' | 'analytics' | 'depression-log' | 'support';
+type DashboardSectionId = 'overview' | 'facial-scan' | 'community' | 'analytics' | 'depression-log';
 type CheckInPhase = 'scan' | 'questionnaire' | 'results';
 type CameraState = 'idle' | 'requesting' | 'ready' | 'denied' | 'unsupported' | 'error';
 type ScanPhase = 'idle' | 'capturing' | 'uploading' | 'success' | 'error';
@@ -55,10 +59,17 @@ const FACIAL_SCAN_PROFILE: ScanProfile = {
 const DASHBOARD_SECTIONS = [
   { id: 'overview', label: 'Overview' },
   { id: 'facial-scan', label: 'Facial Scan' },
+  { id: 'community', label: 'Community Board' },
   { id: 'analytics', label: 'Analytics' },
   { id: 'depression-log', label: 'Depression Log' },
-  { id: 'support', label: 'Support' },
 ] as const;
+
+const PEER_REACTION_OPTIONS: Array<{ type: PeerSupportReactionType; label: string }> = [
+  { type: 'you_are_not_alone', label: 'You are not alone' },
+  { type: 'sending_support', label: 'Sending support' },
+  { type: 'take_a_breath', label: 'Take a breath' },
+  { type: 'stay_strong', label: 'Stay strong' },
+];
 
 const TIER_CONFIG: Record<string, { label: string; badge: string; color: string }> = {
   low: { label: 'Not Stressed', badge: 'mw-badge-success', color: '#3a8f55' },
@@ -268,6 +279,28 @@ export const EmployeeDashboardPage = () => {
   const [logExporting, setLogExporting] = useState(false);
   const [expandedLogSessionId, setExpandedLogSessionId] = useState<number | null>(null);
 
+  // Anonymous community board state
+  const [communityThreads, setCommunityThreads] = useState<PeerSupportThread[]>([]);
+  const [communityLoading, setCommunityLoading] = useState(false);
+  const [communityError, setCommunityError] = useState<string | null>(null);
+  const [communityPage, setCommunityPage] = useState(1);
+  const [communityTotalPages, setCommunityTotalPages] = useState(1);
+  const [communityShowAll, setCommunityShowAll] = useState(false);
+  const [newThreadContent, setNewThreadContent] = useState('');
+  const [createThreadPending, setCreateThreadPending] = useState(false);
+  const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({});
+  const [replySubmittingThreadId, setReplySubmittingThreadId] = useState<number | null>(null);
+  const [reactionPendingThreadId, setReactionPendingThreadId] = useState<number | null>(null);
+  const [deletingThreadId, setDeletingThreadId] = useState<number | null>(null);
+
+  // Counselor consultation state
+  const [consultationConfig, setConsultationConfig] = useState<ConsultationTeamConfig | null>(null);
+  const [consultationRequests, setConsultationRequests] = useState<ConsultationRequest[]>([]);
+  const [consultationLoading, setConsultationLoading] = useState(false);
+  const [consultationError, setConsultationError] = useState<string | null>(null);
+  const [consultationSubmitting, setConsultationSubmitting] = useState(false);
+  const [consultationNote, setConsultationNote] = useState('');
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -278,6 +311,8 @@ export const EmployeeDashboardPage = () => {
   const scanRunRef = useRef(0);
   const statusRunRef = useRef(0);
   const logRunRef = useRef(0);
+  const communityRunRef = useRef(0);
+  const consultationRunRef = useRef(0);
 
   const allowed = user?.role === 'employee';
   const selectedProfile = FACIAL_SCAN_PROFILE;
@@ -293,6 +328,7 @@ export const EmployeeDashboardPage = () => {
       ? completionSummary.compositeScore - prevSessionScore
       : null;
   const showDeclineAlert = declineDelta !== null && declineDelta > 15;
+  const latestConsultationRequest = consultationRequests.length > 0 ? consultationRequests[0] : null;
 
   const loadAnalyticsData = useCallback(async () => {
     setSessionHistoryLoading(true);
@@ -345,6 +381,177 @@ export const EmployeeDashboardPage = () => {
     },
     [logDateFrom, logDateTo],
   );
+
+  const loadCommunityThreads = useCallback(
+    async (requestedPage?: number, showAllOverride?: boolean) => {
+      const page = requestedPage ?? communityPage;
+      const includeAll = showAllOverride ?? communityShowAll;
+      const runId = ++communityRunRef.current;
+      setCommunityLoading(true);
+      setCommunityError(null);
+
+      try {
+        const response = await peerSupportApi.listThreads(page, 20, includeAll);
+        if (runId !== communityRunRef.current) return;
+        setCommunityThreads(response.items);
+        setCommunityPage(response.meta.page);
+        setCommunityTotalPages(Math.max(1, response.meta.total_pages));
+      } catch (error) {
+        if (runId !== communityRunRef.current) return;
+        setCommunityThreads([]);
+        setCommunityTotalPages(1);
+        setCommunityError(
+          resolveApiErrorMessage(error, 'Could not load community posts right now. Please retry.'),
+        );
+      } finally {
+        if (runId === communityRunRef.current) {
+          setCommunityLoading(false);
+        }
+      }
+    },
+    [communityPage, communityShowAll],
+  );
+
+  const loadConsultationData = useCallback(async () => {
+    const runId = ++consultationRunRef.current;
+    setConsultationLoading(true);
+    setConsultationError(null);
+
+    try {
+      const [config, requests] = await Promise.all([
+        consultationsApi.getEmployeeConfig(),
+        consultationsApi.listMyRequests(),
+      ]);
+      if (runId !== consultationRunRef.current) return;
+      setConsultationConfig(config);
+      setConsultationRequests(requests);
+    } catch (error) {
+      if (runId !== consultationRunRef.current) return;
+      setConsultationConfig(null);
+      setConsultationRequests([]);
+      setConsultationError(
+        resolveApiErrorMessage(error, 'Could not load counselor consultation settings right now.'),
+      );
+    } finally {
+      if (runId === consultationRunRef.current) {
+        setConsultationLoading(false);
+      }
+    }
+  }, []);
+
+  const handleCreateThread = useCallback(async () => {
+    const trimmed = newThreadContent.trim();
+    if (!trimmed) {
+      toast.error('Write a short anonymous message before posting.');
+      return;
+    }
+    setCreateThreadPending(true);
+    try {
+      const created = await peerSupportApi.createThread({ content: trimmed });
+      setNewThreadContent('');
+      if (created.moderation_status !== 'approved') {
+        toast.warning(created.moderation_reason ?? 'Your post was removed by moderation.');
+      } else {
+        toast.success('Your anonymous post was submitted.');
+      }
+      void loadCommunityThreads(1);
+    } catch (error) {
+      const message = resolveApiErrorMessage(error, 'Could not publish your post right now.');
+      toast.error(message);
+    } finally {
+      setCreateThreadPending(false);
+    }
+  }, [loadCommunityThreads, newThreadContent]);
+
+  const handleReplyToThread = useCallback(
+    async (threadId: number) => {
+      const draft = (replyDrafts[threadId] ?? '').trim();
+      if (!draft) {
+        toast.error('Write a reply before posting.');
+        return;
+      }
+      setReplySubmittingThreadId(threadId);
+      try {
+        const createdReply = await peerSupportApi.replyToThread(threadId, { content: draft });
+        setReplyDrafts((current) => ({ ...current, [threadId]: '' }));
+        if (createdReply.moderation_status !== 'approved') {
+          toast.warning(createdReply.moderation_reason ?? 'Your reply was removed by moderation.');
+        } else {
+          toast.success('Your anonymous reply was posted.');
+        }
+        const updatedThread = await peerSupportApi.getThread(threadId);
+        setCommunityThreads((current) =>
+          current.map((thread) => (thread.id === threadId ? updatedThread : thread)),
+        );
+      } catch (error) {
+        const message = resolveApiErrorMessage(error, 'Could not post your reply right now.');
+        toast.error(message);
+      } finally {
+        setReplySubmittingThreadId((current) => (current === threadId ? null : current));
+      }
+    },
+    [replyDrafts],
+  );
+
+  const handleToggleReaction = useCallback(
+    async (threadId: number, reactionType: PeerSupportReactionType) => {
+      setReactionPendingThreadId(threadId);
+      try {
+        const thread = communityThreads.find((item) => item.id === threadId);
+        const nextReaction = thread?.my_reaction === reactionType ? null : reactionType;
+        const updated = await peerSupportApi.updateReaction(threadId, { reaction_type: nextReaction });
+        setCommunityThreads((current) =>
+          current.map((item) => (item.id === threadId ? updated : item)),
+        );
+      } catch (error) {
+        const message = resolveApiErrorMessage(error, 'Could not update your reaction right now.');
+        toast.error(message);
+      } finally {
+        setReactionPendingThreadId((current) => (current === threadId ? null : current));
+      }
+    },
+    [communityThreads],
+  );
+
+  const handleDeleteThread = useCallback(
+    async (threadId: number) => {
+      setDeletingThreadId(threadId);
+      try {
+        await peerSupportApi.deleteThread(threadId);
+        toast.success('Thread deleted successfully.');
+        const nextPage =
+          !communityShowAll && communityThreads.length === 1 && communityPage > 1
+            ? communityPage - 1
+            : communityPage;
+        await loadCommunityThreads(nextPage, communityShowAll);
+      } catch (error) {
+        const message = resolveApiErrorMessage(error, 'Could not delete this thread right now.');
+        toast.error(message);
+      } finally {
+        setDeletingThreadId((current) => (current === threadId ? null : current));
+      }
+    },
+    [communityPage, communityShowAll, communityThreads.length, loadCommunityThreads],
+  );
+
+  const handleCreateConsultationRequest = useCallback(async () => {
+    if (!completionSummary) return;
+    setConsultationSubmitting(true);
+    try {
+      await consultationsApi.createRequest({
+        session_id: completionSummary.sessionId,
+        note: consultationNote.trim() || undefined,
+      });
+      setConsultationNote('');
+      toast.success('Counselor request submitted. You will see schedule updates here.');
+      await loadConsultationData();
+    } catch (error) {
+      const message = resolveApiErrorMessage(error, 'Could not submit your consultation request right now.');
+      toast.error(message);
+    } finally {
+      setConsultationSubmitting(false);
+    }
+  }, [completionSummary, consultationNote, loadConsultationData]);
 
   const clearTimers = useCallback(() => {
     if (captureIntervalRef.current !== null) {
@@ -673,7 +880,8 @@ export const EmployeeDashboardPage = () => {
     void loadModelStatus();
     void loadAnalyticsData();
     void loadDepressionLog();
-  }, [allowed, loadModelStatus, loadAnalyticsData, loadDepressionLog]);
+    void loadConsultationData();
+  }, [allowed, loadModelStatus, loadAnalyticsData, loadDepressionLog, loadConsultationData]);
 
   useEffect(() => {
     if (activeSectionId === 'facial-scan') return;
@@ -685,6 +893,12 @@ export const EmployeeDashboardPage = () => {
       void loadAnalyticsData();
     }
   }, [activeSectionId, sessionHistory.length, sessionHistoryLoading, loadAnalyticsData]);
+
+  useEffect(() => {
+    if (activeSectionId === 'community' && !communityLoading && communityThreads.length === 0 && !communityError) {
+      void loadCommunityThreads(1);
+    }
+  }, [activeSectionId, communityLoading, communityThreads.length, communityError, loadCommunityThreads]);
 
   useEffect(() => {
     if (
@@ -784,6 +998,9 @@ export const EmployeeDashboardPage = () => {
               <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('analytics')}>
                 View Analytics
               </button>
+              <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('community')}>
+                Community Threads
+              </button>
               <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('depression-log')}>
                 Depression Log
               </button>
@@ -842,8 +1059,9 @@ export const EmployeeDashboardPage = () => {
       setCheckInPhase('results');
       void loadAnalyticsData();
       void loadDepressionLog();
+      void loadConsultationData();
     },
-    [loadAnalyticsData, loadDepressionLog],
+    [loadAnalyticsData, loadConsultationData, loadDepressionLog],
   );
 
   const handleQuestionnaireCancel = useCallback(() => {
@@ -933,6 +1151,20 @@ export const EmployeeDashboardPage = () => {
     const tier = completionSummary.thresholdTier;
     const cfg = tierConfig(tier);
     const resources = WELLNESS_RESOURCES[tier] ?? WELLNESS_RESOURCES.low;
+    const consultationEnabled = Boolean(consultationConfig?.is_enabled);
+    const showConsultationCard = tier === 'high' || tier === 'severe';
+    const consultationBadgeClass =
+      latestConsultationRequest?.status === 'scheduled'
+        ? 'mw-badge-success'
+        : latestConsultationRequest?.status === 'pending'
+          ? 'mw-badge-warning'
+          : 'mw-badge-info';
+    const consultationBadgeLabel =
+      latestConsultationRequest?.status === 'scheduled'
+        ? 'Scheduled'
+        : latestConsultationRequest?.status === 'pending'
+          ? 'Pending Review'
+          : 'No Request Yet';
 
     const trendDelta = declineDelta;
     const trendLabel =
@@ -1029,6 +1261,72 @@ export const EmployeeDashboardPage = () => {
               </ul>
             </article>
           )}
+
+          {showConsultationCard && (
+            <article className="mw-card mw-info-panel">
+              <p className="mw-entity-kicker">Counselor Consultation</p>
+              <h3>Request a private session</h3>
+              <p>
+                {consultationEnabled
+                  ? 'Because your latest tier is High/Severe, you can request a confidential counselor session.'
+                  : consultationLoading
+                    ? 'Checking whether your company has enabled a consultation team...'
+                    : 'Your company has not enabled counselor consultation yet. You can still use support resources above.'}
+              </p>
+
+              <div className="mw-inline-summary" style={{ marginTop: '10px' }}>
+                <span className={`mw-badge ${consultationBadgeClass}`}>{consultationBadgeLabel}</span>
+                {latestConsultationRequest?.scheduled_for ? (
+                  <span className="mw-helper-text">
+                    Scheduled: {formatDateTime(latestConsultationRequest.scheduled_for)}
+                  </span>
+                ) : null}
+              </div>
+
+              {consultationEnabled && (
+                <div className="mw-community-thread-editor" style={{ marginTop: '12px' }}>
+                  <label className="mw-field">
+                    <span className="mw-field-label">Private note for counselor (optional)</span>
+                    <textarea
+                      className="mw-input mw-textarea"
+                      value={consultationNote}
+                      onChange={(event) => setConsultationNote(event.target.value)}
+                      placeholder="Share context you want the counselor to know before scheduling."
+                      maxLength={500}
+                    />
+                  </label>
+                  <div className="mw-info-panel-actions">
+                    <button
+                      type="button"
+                      className="mw-btn-primary"
+                      onClick={() => {
+                        void handleCreateConsultationRequest();
+                      }}
+                      disabled={consultationSubmitting || consultationLoading}
+                    >
+                      {consultationSubmitting ? 'Submitting...' : 'Request Session'}
+                    </button>
+                    <button
+                      type="button"
+                      className="mw-btn-ghost"
+                      onClick={() => {
+                        void loadConsultationData();
+                      }}
+                      disabled={consultationLoading || consultationSubmitting}
+                    >
+                      {consultationLoading ? 'Refreshing...' : 'Refresh Status'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {consultationError ? (
+                <p className="mw-helper-text" style={{ marginTop: '10px', color: '#b91c1c' }}>
+                  {consultationError}
+                </p>
+              ) : null}
+            </article>
+          )}
         </div>
 
         <div className="mw-card mw-info-panel">
@@ -1047,6 +1345,9 @@ export const EmployeeDashboardPage = () => {
             </button>
             <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('depression-log')}>
               Open Log
+            </button>
+            <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('community')}>
+              Open Community Board
             </button>
           </div>
         </div>
@@ -1713,42 +2014,259 @@ export const EmployeeDashboardPage = () => {
     </section>
   );
 
-  const renderSupportSection = () => (
+  const renderCommunitySection = () => (
     <section className="mw-entity-layout">
+      <div className="mw-card mw-entity-header">
+        <div className="mw-entity-header-row">
+          <div>
+            <p className="mw-entity-kicker">Anonymous Peer Support</p>
+            <h2 className="mw-entity-title">Community Board</h2>
+            <p className="mw-entity-description">
+              Share short anonymous posts with your company peers, react with supportive responses, and keep
+              conversation content encrypted at rest.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="mw-btn-ghost"
+            onClick={() => {
+              void loadCommunityThreads(communityPage, communityShowAll);
+            }}
+            disabled={communityLoading}
+          >
+            {communityLoading ? 'Refreshing...' : 'Refresh Threads'}
+          </button>
+          <button
+            type="button"
+            className="mw-btn-ghost"
+            onClick={() => {
+              const nextShowAll = !communityShowAll;
+              setCommunityShowAll(nextShowAll);
+              void loadCommunityThreads(1, nextShowAll);
+            }}
+            disabled={communityLoading}
+          >
+            {communityShowAll ? 'Paginated View' : 'See All Threads'}
+          </button>
+        </div>
+      </div>
+
+      <article className="mw-card mw-community-thread-editor">
+        <label className="mw-field">
+          <span className="mw-field-label">Create anonymous post</span>
+          <textarea
+            className="mw-input mw-textarea"
+            value={newThreadContent}
+            onChange={(event) => setNewThreadContent(event.target.value)}
+            placeholder="Share how you feel. Only your random colleague alias is shown."
+            maxLength={600}
+          />
+        </label>
+        <div className="mw-info-panel-actions">
+          <button
+            type="button"
+            className="mw-btn-primary"
+            onClick={() => {
+              void handleCreateThread();
+            }}
+            disabled={createThreadPending}
+          >
+            {createThreadPending ? 'Posting...' : 'Post Anonymously'}
+          </button>
+          <span className="mw-helper-text">{newThreadContent.trim().length}/600</span>
+        </div>
+      </article>
+
+      {communityError ? (
+        <div className="mw-scan-message-card danger">
+          <h4>Community feed unavailable</h4>
+          <p>{communityError}</p>
+        </div>
+      ) : null}
+
+      {communityLoading ? <div className="mw-loading-card mw-card">Loading community threads...</div> : null}
+
+      {!communityLoading && !communityError && communityThreads.length === 0 ? (
+        <div className="mw-empty-state mw-card">
+          <h3>No posts yet</h3>
+          <p>Be the first colleague to share an anonymous support message.</p>
+        </div>
+      ) : null}
+
+      {!communityLoading &&
+        communityThreads.map((thread) => (
+          <article key={thread.id} className="mw-card mw-community-thread-card">
+            <div className="mw-community-thread-head">
+              <div>
+                <span className="mw-badge mw-badge-muted">{thread.alias}</span>
+                <p className="mw-helper-text" style={{ marginTop: '6px' }}>
+                  Posted {formatDateTime(thread.created_at)}
+                </p>
+              </div>
+              <div className="mw-inline-summary">
+                <span className="mw-badge mw-badge-info">{thread.reply_count} replies</span>
+                {thread.can_delete ? (
+                  <button
+                    type="button"
+                    className="mw-btn-chip mw-chip-danger"
+                    onClick={() => {
+                      void handleDeleteThread(thread.id);
+                    }}
+                    disabled={deletingThreadId === thread.id}
+                  >
+                    {deletingThreadId === thread.id ? 'Deleting...' : 'Delete'}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            <p className="mw-community-thread-content">{thread.content}</p>
+
+            <div className="mw-community-reaction-row">
+              {PEER_REACTION_OPTIONS.map((reactionOption) => {
+                const reactionCount =
+                  thread.reactions.find((reaction) => reaction.reaction_type === reactionOption.type)?.count ?? 0;
+                const active = thread.my_reaction === reactionOption.type;
+                return (
+                  <button
+                    key={`${thread.id}-${reactionOption.type}`}
+                    type="button"
+                    className={`mw-btn-chip ${active ? 'mw-chip-success' : ''}`}
+                    onClick={() => {
+                      void handleToggleReaction(thread.id, reactionOption.type);
+                    }}
+                    disabled={reactionPendingThreadId === thread.id}
+                  >
+                    {reactionOption.label} ({reactionCount})
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mw-community-replies">
+              {thread.replies.length === 0 ? (
+                <p className="mw-helper-text">No replies yet. Share a supportive response.</p>
+              ) : (
+                thread.replies.map((reply) => (
+                  <div key={reply.id} className="mw-community-reply-item">
+                    <div className="mw-community-reply-head">
+                      <span className="mw-badge mw-badge-muted">{reply.alias}</span>
+                      <span className="mw-helper-text">{formatDateTime(reply.created_at)}</span>
+                    </div>
+                    <p>{reply.content}</p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="mw-community-reply-form">
+              <textarea
+                className="mw-input"
+                value={replyDrafts[thread.id] ?? ''}
+                onChange={(event) =>
+                  setReplyDrafts((current) => ({ ...current, [thread.id]: event.target.value }))
+                }
+                placeholder="Write an anonymous supportive reply..."
+                maxLength={400}
+              />
+              <button
+                type="button"
+                className="mw-btn-ghost"
+                onClick={() => {
+                  void handleReplyToThread(thread.id);
+                }}
+                disabled={replySubmittingThreadId === thread.id}
+              >
+                {replySubmittingThreadId === thread.id ? 'Replying...' : 'Reply'}
+              </button>
+            </div>
+          </article>
+        ))}
+
+      {!communityShowAll && communityTotalPages > 1 ? (
+        <div className="mw-entity-pagination">
+          <span className="mw-pagination-meta">
+            Page {communityPage} of {communityTotalPages}
+          </span>
+          <div className="mw-pagination-actions">
+            <button
+              type="button"
+              className="mw-btn-ghost"
+              onClick={() => {
+                void loadCommunityThreads(Math.max(1, communityPage - 1));
+              }}
+              disabled={communityPage <= 1 || communityLoading}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className="mw-btn-ghost"
+              onClick={() => {
+                void loadCommunityThreads(Math.min(communityTotalPages, communityPage + 1));
+              }}
+              disabled={communityPage >= communityTotalPages || communityLoading}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mw-panel-grid">
         <article className="mw-card mw-info-panel">
-          <p className="mw-entity-kicker">Support</p>
-          <h3>What happens during a scan</h3>
+          <p className="mw-entity-kicker">Moderation</p>
+          <h3>Safety-first support board</h3>
           <p>
-            MindWell captures a limited set of webcam frames, sends them to the employee-only backend vision route,
-            and returns the model result as a clean mood score summary after the 30-second scan ends. The preview
-            shuts off once the scan is done or stopped.
+            Harmful and crisis-level text is automatically filtered. Approved content remains anonymous and scoped to
+            your company only.
           </p>
         </article>
 
         <article className="mw-card mw-info-panel">
-          <p className="mw-entity-kicker">If permission is denied</p>
-          <h3>How to recover</h3>
+          <p className="mw-entity-kicker">Consultation Team</p>
+          <h3>Private counselor queue</h3>
           <p>
-            Open your browser site settings, allow camera access for this MindWell URL, then return to the Facial
-            Scan section and retry. The page will stay stable even if the browser refuses access.
+            {consultationConfig?.is_enabled
+              ? `Consultation is enabled${consultationConfig.provider_name ? ` by ${consultationConfig.provider_name}` : ''}.`
+              : 'Consultation is currently disabled for your company.'}
           </p>
+          <div className="mw-inline-summary">
+            <span className={`mw-badge ${consultationConfig?.is_enabled ? 'mw-badge-success' : 'mw-badge-warning'}`}>
+              {consultationConfig?.is_enabled ? 'Enabled' : 'Disabled'}
+            </span>
+            <span className="mw-helper-text">
+              {consultationRequests.length} request{consultationRequests.length === 1 ? '' : 's'} in your history
+            </span>
+          </div>
+          {consultationRequests.length > 0 ? (
+            <ul className="mw-simple-list" style={{ marginTop: '12px' }}>
+              {consultationRequests.slice(0, 3).map((request) => (
+                <li key={request.id}>
+                  <div>
+                    <strong>{toTitleCase(request.status)}</strong>
+                    <span>
+                      Requested {formatDateTime(request.created_at)}
+                      {request.scheduled_for ? ` • Scheduled ${formatDateTime(request.scheduled_for)}` : ''}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mw-helper-text" style={{ marginTop: '10px' }}>
+              No counselor requests yet.
+            </p>
+          )}
         </article>
 
         <article className="mw-card mw-info-panel">
-          <p className="mw-entity-kicker">Model readiness</p>
-          <h3>Exact backend message</h3>
-          <p>{modelStatus?.message ?? modelStatusError ?? 'No readiness message available yet.'}</p>
-        </article>
-
-        <article className="mw-card mw-info-panel">
-          <p className="mw-entity-kicker">Crisis Support</p>
-          <h3>Immediate Help</h3>
-          <ul style={{ marginTop: '8px', paddingLeft: '16px', lineHeight: '1.9' }}>
-            <li>Crisis Text Line — text HOME to 741741</li>
-            <li>Suicide &amp; Crisis Lifeline — call or text 988</li>
-            <li>Employee Assistance Program (EAP) — contact your HR team</li>
-          </ul>
+          <p className="mw-entity-kicker">Privacy</p>
+          <h3>Encrypted records</h3>
+          <p>
+            Community posts/replies and counselor notes are stored encrypted. Consultation records are private and are
+            not visible to department managers or company heads.
+          </p>
         </article>
       </div>
     </section>
@@ -1758,7 +2276,7 @@ export const EmployeeDashboardPage = () => {
     if (activeSectionId === 'overview') return renderOverview();
     if (activeSectionId === 'analytics') return renderAnalyticsSection();
     if (activeSectionId === 'depression-log') return renderDepressionLogSection();
-    if (activeSectionId === 'support') return renderSupportSection();
+    if (activeSectionId === 'community') return renderCommunitySection();
     if (activeSectionId === 'facial-scan') {
       if (checkInPhase === 'questionnaire') return renderQuestionnaireSection();
       if (checkInPhase === 'results') return renderResultsSection();

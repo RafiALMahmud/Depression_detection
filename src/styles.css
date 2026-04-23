@@ -1106,6 +1106,79 @@ a {
   flex-wrap: wrap;
 }
 
+.mw-community-thread-editor {
+  padding: 18px;
+}
+
+.mw-community-thread-card {
+  padding: 18px;
+}
+
+.mw-community-thread-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.mw-community-thread-content {
+  margin-top: 12px;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.mw-community-reaction-row {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mw-community-replies {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.mw-community-reply-item {
+  border-radius: 12px;
+  border: 1px solid rgba(26, 43, 60, 0.11);
+  background: rgba(250, 248, 243, 0.84);
+  padding: 10px 12px;
+}
+
+.mw-community-reply-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mw-community-reply-item p {
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.mw-community-reply-form {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.mw-community-reply-form .mw-input {
+  min-height: 84px;
+}
+
 .mw-simple-list {
   margin-top: 12px;
   list-style: none;
@@ -2681,6 +2754,10 @@ a[aria-disabled='true'] {
   .mw-score-label-row {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .mw-community-reply-form {
+    grid-template-columns: 1fr;
   }
 
   .mw-empty-state h3 {

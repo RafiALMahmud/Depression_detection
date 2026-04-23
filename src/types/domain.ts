@@ -484,3 +484,65 @@ export interface EscalationAlertHistoryResponse {
   items: EscalationAlert[];
   total: number;
 }
+
+export type PeerSupportReactionType =
+  | 'you_are_not_alone'
+  | 'sending_support'
+  | 'take_a_breath'
+  | 'stay_strong';
+
+export interface PeerSupportReactionCount {
+  reaction_type: PeerSupportReactionType;
+  count: number;
+}
+
+export interface PeerSupportReply {
+  id: number;
+  alias: string;
+  content: string;
+  moderation_status: string;
+  moderation_reason: string | null;
+  created_at: string;
+}
+
+export interface PeerSupportThread {
+  id: number;
+  alias: string;
+  content: string;
+  created_at: string;
+  moderation_status: string;
+  moderation_reason: string | null;
+  reply_count: number;
+  can_delete: boolean;
+  reactions: PeerSupportReactionCount[];
+  my_reaction: PeerSupportReactionType | null;
+  replies: PeerSupportReply[];
+}
+
+export interface PeerSupportThreadListResponse {
+  items: PeerSupportThread[];
+  meta: PaginationMeta;
+}
+
+export interface ConsultationTeamConfig {
+  company_id: number;
+  is_enabled: boolean;
+  provider_name: string | null;
+  contact_email: string | null;
+  guidance_note: string | null;
+  updated_at: string | null;
+}
+
+export interface ConsultationRequest {
+  id: number;
+  company_id: number;
+  employee_id: number;
+  source_session_id: number | null;
+  threshold_tier: string;
+  status: string;
+  note: string | null;
+  scheduler_note: string | null;
+  scheduled_for: string | null;
+  created_at: string;
+  updated_at: string;
+}

@@ -43,6 +43,12 @@ import type {
   EscalationAlert,
   EscalationAlertListResponse,
   EscalationAlertHistoryResponse,
+  PeerSupportThread,
+  PeerSupportThreadListResponse,
+  PeerSupportReply,
+  PeerSupportReactionType,
+  ConsultationTeamConfig,
+  ConsultationRequest,
 } from '../types/domain';
 
 export interface ListQuery {
@@ -610,6 +616,23 @@ export interface ReportListQuery {
   departmentId?: number;
 }
 
+export interface PeerSupportThreadCreatePayload {
+  content: string;
+}
+
+export interface PeerSupportReplyCreatePayload {
+  content: string;
+}
+
+export interface PeerSupportReactionUpdatePayload {
+  reaction_type: PeerSupportReactionType | null;
+}
+
+export interface ConsultationRequestCreatePayload {
+  session_id?: number;
+  note?: string;
+}
+
 export const reportsApi = {
   preview: async (): Promise<ReportPreview> => {
     const response = await apiClient.get<ReportPreview>('/reports/preview');
@@ -720,6 +743,52 @@ export const escalationAlertsApi = {
     const response = await apiClient.get<EscalationAlertHistoryResponse>('/escalation-alerts/history', {
       params: { page, page_size: pageSize },
     });
+    return response.data;
+  },
+};
+
+export const peerSupportApi = {
+  listThreads: async (page = 1, pageSize = 20, allThreads = false): Promise<PeerSupportThreadListResponse> => {
+    const response = await apiClient.get<PeerSupportThreadListResponse>('/peer-support/threads', {
+      params: { page, page_size: pageSize, all: allThreads || undefined },
+    });
+    return response.data;
+  },
+  getThread: async (threadId: number): Promise<PeerSupportThread> => {
+    const response = await apiClient.get<PeerSupportThread>(`/peer-support/threads/${threadId}`);
+    return response.data;
+  },
+  createThread: async (payload: PeerSupportThreadCreatePayload): Promise<PeerSupportThread> => {
+    const response = await apiClient.post<PeerSupportThread>('/peer-support/threads', payload);
+    return response.data;
+  },
+  replyToThread: async (threadId: number, payload: PeerSupportReplyCreatePayload): Promise<PeerSupportReply> => {
+    const response = await apiClient.post<PeerSupportReply>(`/peer-support/threads/${threadId}/replies`, payload);
+    return response.data;
+  },
+  updateReaction: async (
+    threadId: number,
+    payload: PeerSupportReactionUpdatePayload,
+  ): Promise<PeerSupportThread> => {
+    const response = await apiClient.put<PeerSupportThread>(`/peer-support/threads/${threadId}/reaction`, payload);
+    return response.data;
+  },
+  deleteThread: async (threadId: number): Promise<void> => {
+    await apiClient.delete(`/peer-support/threads/${threadId}`);
+  },
+};
+
+export const consultationsApi = {
+  getEmployeeConfig: async (): Promise<ConsultationTeamConfig> => {
+    const response = await apiClient.get<ConsultationTeamConfig>('/consultations/team-config');
+    return response.data;
+  },
+  createRequest: async (payload: ConsultationRequestCreatePayload): Promise<ConsultationRequest> => {
+    const response = await apiClient.post<ConsultationRequest>('/consultations/request', payload);
+    return response.data;
+  },
+  listMyRequests: async (): Promise<ConsultationRequest[]> => {
+    const response = await apiClient.get<ConsultationRequest[]>('/consultations/my');
     return response.data;
   },
 };

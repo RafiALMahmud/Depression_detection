@@ -257,7 +257,7 @@ function App() {
         <nav className="nav-links" aria-label="Primary">
           <a href="#how">How it works</a>
           <a href="#features">Features</a>
-          <a href="#roles">Who it is for</a>
+          <a href="#community">Community Board</a>
           <a href="#scoring">Scoring</a>
           <a href="#tech">Tech</a>
         </nav>
@@ -359,6 +359,34 @@ function App() {
                 <p>{feature.description}</p>
               </article>
             ))}
+          </div>
+        </section>
+
+        <section id="community" className="content-section">
+          <span className="section-label">Community board</span>
+          <h2 className="section-title">
+            Anonymous peer support, <em>inside your company</em>
+          </h2>
+          <p className="section-sub">
+            Employees can post anonymous threads, react with supportive responses, and reply in private company-scoped
+            discussions protected by moderation and encrypted storage.
+          </p>
+          <div className="privacy-banner reveal">
+            <div className="icon-wrap" aria-hidden="true">
+              Safe
+            </div>
+            <div>
+              <h3>View posts, threads, and replies in your employee dashboard</h3>
+              <p>
+                Sign in as an employee and open the Community Board section to read ongoing anonymous conversations,
+                publish a new post, and reply to peer threads.
+              </p>
+              <div className="hero-btns" style={{ marginTop: '18px' }}>
+                <a className="btn-primary" href="/sign-in">
+                  Open Community Board
+                </a>
+              </div>
+            </div>
           </div>
         </section>
 

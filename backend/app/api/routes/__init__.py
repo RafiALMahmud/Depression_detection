@@ -1,14 +1,31 @@
-from . import auth, companies, company_heads, dashboard, department_managers, departments, employees, invitations, reports, super_admins, system_admins, vision
+from . import (
+    auth,
+    companies,
+    company_heads,
+    consultations,
+    dashboard,
+    department_managers,
+    departments,
+    employees,
+    invitations,
+    peer_support,
+    reports,
+    super_admins,
+    system_admins,
+    vision,
+)
 
 __all__ = [
     "auth",
     "companies",
     "company_heads",
+    "consultations",
     "dashboard",
     "department_managers",
     "departments",
     "employees",
     "invitations",
+    "peer_support",
     "reports",
     "super_admins",
     "system_admins",

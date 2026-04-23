@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 from functools import lru_cache
 
 from pydantic import field_validator
@@ -30,6 +32,9 @@ class Settings(BaseSettings):
     checkin_reminder_interval_days: int = 3
     checkin_reminder_lead_days: int = 1
     checkin_reminder_poll_seconds: int = 60 * 60
+    peer_support_max_post_length: int = 600
+    peer_support_max_reply_length: int = 400
+    privacy_encryption_key: str = ""
 
     vision_model_weights_path: str = "backend/app/models/efficientface_rafdb.pth"
     vision_model_architecture: str = "efficientface"
@@ -62,6 +67,12 @@ class Settings(BaseSettings):
         if not labels:
             raise ValueError("VISION_CLASS_LABELS must contain at least one label")
         return labels
+
+    @property
+    def privacy_fernet_key(self) -> bytes:
+        source = self.privacy_encryption_key.strip() or self.jwt_secret_key
+        digest = hashlib.sha256(source.encode("utf-8")).digest()
+        return base64.urlsafe_b64encode(digest)
 
     @field_validator(
         "debug",
