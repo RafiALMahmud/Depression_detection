@@ -6,6 +6,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   company_head: 'Company Head',
   department_manager: 'Department Manager',
   employee: 'Employee',
+  consultant: 'Consultant',
 };
 
 export const getDashboardPathByRole = (role: UserRole): string => {
@@ -20,6 +21,8 @@ export const getDashboardPathByRole = (role: UserRole): string => {
       return '/dashboard/department-manager';
     case 'employee':
       return '/dashboard/employee';
+    case 'consultant':
+      return '/dashboard/consultant';
     default:
       return '/sign-in';
   }

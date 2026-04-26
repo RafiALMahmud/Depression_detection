@@ -16,6 +16,9 @@ from app.services.checkin_reminders import run_due_checkin_reminders
 # Import models so SQLAlchemy metadata includes all tables for create_all.
 from app.models import (  # noqa: F401
     AuditLog,
+    Consultant,
+    ConsultationThread,
+    ConsultationMessage,
     CheckInReminderLog,
     CheckInSession,
     Company,

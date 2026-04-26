@@ -1,4 +1,7 @@
 from app.models.audit_log import AuditLog
+from app.models.consultant import Consultant
+from app.models.consultation_thread import ConsultationThread
+from app.models.consultation_message import ConsultationMessage
 from app.models.check_in_reminder_log import CheckInReminderLog
 from app.models.consultation_team_config import ConsultationTeamConfig
 from app.models.counselor_consultation_request import CounselorConsultationRequest
@@ -21,6 +24,9 @@ from app.models.user import User
 
 __all__ = [
     "AuditLog",
+    "Consultant",
+    "ConsultationThread",
+    "ConsultationMessage",
     "CheckInReminderLog",
     "ConsultationTeamConfig",
     "CounselorConsultationRequest",

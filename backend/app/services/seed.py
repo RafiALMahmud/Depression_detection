@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.security import get_password_hash
 from app.models.company import Company
 from app.models.company_head import CompanyHead
+from app.models.consultant import Consultant
 from app.models.department import Department
 from app.models.department_manager import DepartmentManager
 from app.models.employee import Employee
@@ -269,5 +270,28 @@ def seed_initial_data(db: Session) -> None:
                     job_title=employee_data["job_title"],
                 )
             )
+
+    consultant_user = _get_or_create_user(
+        db,
+        full_name="Demo Consultant",
+        email="con@gmail.com",
+        password="123456",
+        role=UserRole.CONSULTANT,
+        reset_password=True,
+        is_active=True,
+    )
+    existing_consultant = db.scalar(select(Consultant).where(Consultant.user_id == consultant_user.id))
+    if not existing_consultant:
+        db.add(
+            Consultant(
+                user_id=consultant_user.id,
+                company_id=company.id,
+                professional_title="Wellness Consultant",
+                specialization="Employee Mental Health",
+                bio="Confidential support for all employees. All conversations are anonymous.",
+                is_active=True,
+                created_by_user_id=creator_user.id,
+            )
+        )
 
     db.commit()

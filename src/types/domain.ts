@@ -3,7 +3,8 @@ export type UserRole =
   | 'system_admin'
   | 'company_head'
   | 'department_manager'
-  | 'employee';
+  | 'employee'
+  | 'consultant';
 
 export type InvitationStatus = 'pending' | 'used' | 'expired' | 'cancelled';
 
@@ -545,4 +546,69 @@ export interface ConsultationRequest {
   scheduled_for: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ConsultantProfile {
+  id: number;
+  user: User;
+  company_id: number;
+  company_name: string | null;
+  professional_title: string | null;
+  specialization: string | null;
+  bio: string | null;
+  is_active: boolean;
+  invitation: InvitationSnapshot | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConsultantListResponse {
+  items: ConsultantProfile[];
+  total: number;
+}
+
+export interface ConsultantDashboardSummary {
+  company_name: string;
+  professional_title: string | null;
+  specialization: string | null;
+  active_threads: number;
+  pending_threads: number;
+  resolved_threads: number;
+  advised_employees_count: number;
+}
+
+export interface ChatMessage {
+  id: number;
+  sender_role: 'employee' | 'consultant';
+  message_body: string;
+  created_at: string;
+}
+
+export interface ChatThread {
+  id: number;
+  anonymous_alias: string;
+  status: string;
+  message_count: number;
+  last_message_at: string | null;
+  created_at: string;
+}
+
+export interface ChatThreadDetail {
+  id: number;
+  anonymous_alias: string;
+  status: string;
+  created_at: string;
+  messages: ChatMessage[];
+}
+
+export interface StartConsultationResponse {
+  thread_id: number;
+  anonymous_alias: string;
+  status: string;
+}
+
+export interface ConsultantAdvisory {
+  should_advise: boolean;
+  sad_session_count: number;
+  consultants_available: boolean;
 }

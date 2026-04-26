@@ -5,6 +5,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import {
+  consultantApi,
   dashboardApi,
   departmentManagersApi,
   employeesApi,
@@ -27,6 +28,7 @@ import type { FormFieldConfig, RowAction, TableColumn } from '../components/dash
 import type {
   CompanyDepartmentBreakdown,
   CompanyHeadSummary,
+  ConsultantProfile,
   DepartmentManagerProfile,
   DepartmentOption,
   EmployeeProfile,
@@ -380,6 +382,7 @@ export const CompanyHeadDashboardPage = () => {
     { id: 'department-managers', label: 'Department Managers' },
     { id: 'employees', label: 'Employees' },
     { id: 'departments', label: 'Departments' },
+    { id: 'consultants', label: 'Consultants' },
     { id: 'reports', label: 'Reports' },
     { id: 'invitations', label: 'Invitations' },
   ];
@@ -1010,6 +1013,84 @@ export const CompanyHeadDashboardPage = () => {
           toCreatePayload={() => ({})}
           toUpdatePayload={() => ({})}
           onAfterChange={refreshAfterChange}
+        />
+      );
+    }
+
+    if (activeSectionId === 'consultants') {
+      return (
+        <EntitySection<ConsultantProfile>
+          title="Consultant"
+          description="Invite consultants to provide anonymous, confidential support to your employees."
+          createButtonLabel="Invite Consultant"
+          columns={[
+            { key: 'name', title: 'Name', render: (item) => item.user?.full_name ?? '—' },
+            { key: 'email', title: 'Email', render: (item) => item.user?.email ?? '—' },
+            { key: 'title', title: 'Professional Title', render: (item) => item.professional_title ?? '—' },
+            { key: 'specialization', title: 'Specialization', render: (item) => item.specialization ?? '—' },
+            {
+              key: 'status', title: 'Status', render: (item) => {
+                if (item.user?.is_active) return <span className="mw-badge mw-badge-success">Active</span>;
+                const s = item.invitation?.status;
+                if (!s || s === 'pending') return <span className="mw-badge mw-badge-warning">Pending</span>;
+                if (s === 'expired') return <span className="mw-badge mw-badge-danger">Expired</span>;
+                return <span className="mw-badge mw-badge-muted">{s}</span>;
+              }
+            },
+          ]}
+          fields={[
+            { name: 'full_name', label: 'Full Name', type: 'text', required: true },
+            { name: 'email', label: 'Email', type: 'email', required: true },
+            { name: 'professional_title', label: 'Professional Title', type: 'text' },
+            { name: 'specialization', label: 'Specialization', type: 'text' },
+          ]}
+          reloadKey={0}
+          fetchItems={() =>
+            consultantApi.list().then((r: { items: ConsultantProfile[]; total: number }) => ({
+              items: r.items,
+              meta: { page: 1, page_size: r.total, total: r.total, total_pages: 1 },
+            }))
+          }
+          createItem={(payload) => {
+            const p = payload as Record<string, unknown>;
+            const companyId = (summary as { company_id?: number } | null)?.company_id ?? 0;
+            return consultantApi.create({
+              full_name: String(p.full_name ?? '').trim(),
+              email: String(p.email ?? '').trim(),
+              company_id: companyId,
+              professional_title: String(p.professional_title ?? '').trim() || undefined,
+              specialization: String(p.specialization ?? '').trim() || undefined,
+            });
+          }}
+          updateItem={(id, payload) => {
+            const p = payload as Record<string, unknown>;
+            return consultantApi.update(id, {
+              full_name: String(p.full_name ?? '').trim(),
+              professional_title: String(p.professional_title ?? '').trim() || undefined,
+              specialization: String(p.specialization ?? '').trim() || undefined,
+            });
+          }}
+          deleteItem={(id) => consultantApi.remove(id)}
+          getItemId={(item) => item.id}
+          getDeleteLabel={(item) => item.user?.email ?? String(item.id)}
+          toFormValues={(item) => ({
+            full_name: item?.user?.full_name ?? '',
+            email: item?.user?.email ?? '',
+            professional_title: item?.professional_title ?? '',
+            specialization: item?.specialization ?? '',
+          })}
+          toCreatePayload={(v) => v}
+          toUpdatePayload={(v) => v}
+          validate={(values, modeArg) => {
+            const errors: Record<string, string> = {};
+            if (!String(values.full_name ?? '').trim()) errors.full_name = 'Full name is required';
+            if (modeArg === 'create') {
+              if (!String(values.email ?? '').trim()) errors.email = 'Email is required';
+            }
+            return errors;
+          }}
+          createSuccessMessage="Consultant invitation sent"
+          onAfterChange={() => { /* no summary reload needed */ }}
         />
       );
     }

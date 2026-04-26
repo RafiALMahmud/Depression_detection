@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import {
   companiesApi,
   companyHeadsApi,
+  consultantApi,
   dashboardApi,
   departmentManagersApi,
   departmentsApi,
@@ -35,6 +36,7 @@ import type {
   Company,
   CompanyHeadProfile,
   CompanyOption,
+  ConsultantProfile,
   Department,
   DepartmentManagerProfile,
   DepartmentOption,
@@ -382,6 +384,7 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
         { id: 'departments', label: 'Departments' },
         { id: 'department-managers', label: 'Department Managers' },
         { id: 'employees', label: 'Employees' },
+        { id: 'consultants', label: 'Consultants' },
       ]
     : [
         { id: 'overview', label: 'Overview' },
@@ -391,6 +394,7 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
         { id: 'departments', label: 'Departments' },
         { id: 'department-managers', label: 'Department Managers' },
         { id: 'employees', label: 'Employees' },
+        { id: 'consultants', label: 'Consultants' },
       ];
 
   useEffect(() => {
@@ -1133,6 +1137,79 @@ export const AdminDashboardPage = ({ mode }: AdminDashboardPageProps) => {
             }
             return nextValues;
           }}
+        />
+      );
+    }
+
+    if (activeSectionId === 'consultants') {
+      return (
+        <EntitySection<ConsultantProfile>
+          title="Consultant"
+          description="Invite consultants to provide anonymous employee support within their assigned company."
+          createButtonLabel="Invite Consultant"
+          columns={[
+            { key: 'name', title: 'Name', render: (item) => getUserName(item.user) },
+            { key: 'email', title: 'Email', render: (item) => getUserEmail(item.user) },
+            { key: 'company', title: 'Company', render: (item) => item.company_name ?? `#${item.company_id}` },
+            { key: 'title', title: 'Title', render: (item) => item.professional_title ?? '—' },
+            { key: 'specialization', title: 'Specialization', render: (item) => item.specialization ?? '—' },
+            { key: 'onboarding', title: 'Onboarding', render: (item) => renderInvitationBadge(item) },
+          ]}
+          fields={[
+            { name: 'full_name', label: 'Full Name', type: 'text', required: true },
+            { name: 'email', label: 'Email', type: 'email', required: true },
+            { name: 'company_id', label: 'Company', type: 'select', required: true, options: companySelectOptions },
+            { name: 'professional_title', label: 'Professional Title', type: 'text' },
+            { name: 'specialization', label: 'Specialization', type: 'text' },
+            activeField,
+          ]}
+          reloadKey={sectionReloadKey}
+          filters={isSuperMode ? [{ key: 'companyId', label: 'Company Filter', options: companySelectOptions }] : []}
+          fetchItems={(query) =>
+            consultantApi.list(query.companyId ? Number(query.companyId) : undefined).then((r: { items: ConsultantProfile[]; total: number }) => ({
+              items: r.items,
+              meta: { page: 1, page_size: r.total, total: r.total, total_pages: 1 },
+            }))
+          }
+          createItem={(payload) => {
+            const p = payload as Record<string, unknown>;
+            return consultantApi.create({
+              full_name: String(p.full_name ?? '').trim(),
+              email: String(p.email ?? '').trim(),
+              company_id: Number(p.company_id),
+              professional_title: String(p.professional_title ?? '').trim() || undefined,
+              specialization: String(p.specialization ?? '').trim() || undefined,
+            });
+          }}
+          updateItem={(id, payload) => {
+            const p = payload as Record<string, unknown>;
+            return consultantApi.update(id, {
+              full_name: String(p.full_name ?? '').trim(),
+              professional_title: String(p.professional_title ?? '').trim() || undefined,
+              specialization: String(p.specialization ?? '').trim() || undefined,
+              is_active: p.is_active as boolean | undefined,
+            });
+          }}
+          deleteItem={(id) => consultantApi.remove(id)}
+          getItemId={(item) => item.id}
+          getDeleteLabel={(item) => getUserEmail(item.user)}
+          toFormValues={(item) => ({
+            full_name: item?.user?.full_name ?? '',
+            email: item?.user?.email ?? '',
+            company_id: item ? String(item.company_id) : '',
+            professional_title: item?.professional_title ?? '',
+            specialization: item?.specialization ?? '',
+            is_active: item?.user?.is_active ?? true,
+          })}
+          toCreatePayload={(v) => v}
+          toUpdatePayload={(v) => v}
+          validate={(values, modeArg) => {
+            const errors = validateInvitedForm(values, modeArg);
+            if (!String(values.company_id ?? '').trim()) errors.company_id = 'Company is required';
+            return errors;
+          }}
+          createSuccessMessage="Consultant invitation sent"
+          onAfterChange={refreshAfterCrud}
         />
       );
     }

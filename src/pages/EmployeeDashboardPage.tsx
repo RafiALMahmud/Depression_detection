@@ -14,13 +14,15 @@ import {
   Cell,
 } from 'recharts';
 
-import { consultationsApi, peerSupportApi, questionnaireApi, visionApi } from '../api/services';
+import { consultantAdvisoryApi, consultationChatApi, consultationsApi, peerSupportApi, questionnaireApi, visionApi } from '../api/services';
 import { useAuth } from '../auth/AuthContext';
 import { AppShell } from '../components/dashboard/AppShell';
 import { StatsCard } from '../components/dashboard/StatsCard';
 import { QuestionnaireFlow } from '../components/questionnaire/QuestionnaireFlow';
 import type { CompletionSummary } from '../components/questionnaire/QuestionnaireFlow';
 import type {
+  ChatThreadDetail,
+  ConsultantAdvisory,
   DepressionLogEntry,
   ConsultationRequest,
   ConsultationTeamConfig,
@@ -35,7 +37,7 @@ import type {
 } from '../types/domain';
 import { getDashboardPathByRole } from '../utils/roles';
 
-type DashboardSectionId = 'overview' | 'facial-scan' | 'community' | 'analytics' | 'depression-log';
+type DashboardSectionId = 'overview' | 'facial-scan' | 'community' | 'analytics' | 'depression-log' | 'consultant-help';
 type CheckInPhase = 'scan' | 'questionnaire' | 'results';
 type CameraState = 'idle' | 'requesting' | 'ready' | 'denied' | 'unsupported' | 'error';
 type ScanPhase = 'idle' | 'capturing' | 'uploading' | 'success' | 'error';
@@ -62,6 +64,7 @@ const DASHBOARD_SECTIONS = [
   { id: 'community', label: 'Community Board' },
   { id: 'analytics', label: 'Analytics' },
   { id: 'depression-log', label: 'Depression Log' },
+  { id: 'consultant-help', label: 'Consultant Help' },
 ] as const;
 
 const PEER_REACTION_OPTIONS: Array<{ type: PeerSupportReactionType; label: string }> = [
@@ -292,6 +295,16 @@ export const EmployeeDashboardPage = () => {
   const [replySubmittingThreadId, setReplySubmittingThreadId] = useState<number | null>(null);
   const [reactionPendingThreadId, setReactionPendingThreadId] = useState<number | null>(null);
   const [deletingThreadId, setDeletingThreadId] = useState<number | null>(null);
+
+  // Consultant advisory + anonymous chat state
+  const [advisory, setAdvisory] = useState<ConsultantAdvisory | null>(null);
+  const [chatThread, setChatThread] = useState<ChatThreadDetail | null>(null);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatStarting, setChatStarting] = useState(false);
+  const [chatMessage, setChatMessage] = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  const chatRunRef = useRef(0);
 
   // Counselor consultation state
   const [consultationConfig, setConsultationConfig] = useState<ConsultationTeamConfig | null>(null);
@@ -552,6 +565,64 @@ export const EmployeeDashboardPage = () => {
       setConsultationSubmitting(false);
     }
   }, [completionSummary, consultationNote, loadConsultationData]);
+
+  const loadAdvisory = useCallback(async () => {
+    try {
+      const result = await consultantAdvisoryApi.getAdvisory();
+      setAdvisory(result);
+    } catch {
+      // advisory is supplementary — fail silently
+    }
+  }, []);
+
+  const loadChatThread = useCallback(async () => {
+    const runId = ++chatRunRef.current;
+    setChatLoading(true);
+    setChatError(null);
+    try {
+      const thread = await consultationChatApi.getMyThread();
+      if (runId !== chatRunRef.current) return;
+      setChatThread(thread);
+    } catch (error) {
+      if (runId !== chatRunRef.current) return;
+      const status = resolveStatusCode(error);
+      if (status === 404) {
+        setChatThread(null);
+      } else {
+        setChatError(resolveApiErrorMessage(error, 'Could not load your consultation thread right now.'));
+      }
+    } finally {
+      if (runId === chatRunRef.current) setChatLoading(false);
+    }
+  }, []);
+
+  const handleStartConsultation = useCallback(async () => {
+    setChatStarting(true);
+    try {
+      await consultationChatApi.startConsultation();
+      await loadChatThread();
+      toast.success('Anonymous consultation started. Your identity is hidden from the consultant.');
+    } catch (error) {
+      toast.error(resolveApiErrorMessage(error, 'Could not start the consultation right now.'));
+    } finally {
+      setChatStarting(false);
+    }
+  }, [loadChatThread]);
+
+  const handleEmployeeSendMessage = useCallback(async () => {
+    const trimmed = chatMessage.trim();
+    if (!trimmed || !chatThread) return;
+    setChatSending(true);
+    try {
+      const msg = await consultationChatApi.employeeSendMessage(trimmed);
+      setChatMessage('');
+      setChatThread((prev) => prev ? { ...prev, messages: [...prev.messages, msg], status: 'active' } : prev);
+    } catch (error) {
+      toast.error(resolveApiErrorMessage(error, 'Could not send your message right now.'));
+    } finally {
+      setChatSending(false);
+    }
+  }, [chatMessage, chatThread]);
 
   const clearTimers = useCallback(() => {
     if (captureIntervalRef.current !== null) {
@@ -912,6 +983,16 @@ export const EmployeeDashboardPage = () => {
   }, [activeSectionId, depressionLog.length, depressionLogError, depressionLogLoading, loadDepressionLog]);
 
   useEffect(() => {
+    void loadAdvisory();
+  }, [loadAdvisory]);
+
+  useEffect(() => {
+    if (activeSectionId === 'consultant-help' && !chatLoading && !chatThread && !chatError) {
+      void loadChatThread();
+    }
+  }, [activeSectionId, chatLoading, chatThread, chatError, loadChatThread]);
+
+  useEffect(() => {
     return () => {
       ++scanRunRef.current;
       clearTimers();
@@ -965,6 +1046,28 @@ export const EmployeeDashboardPage = () => {
 
     return (
       <section className="mw-entity-layout">
+        {/* Consultant advisory banner */}
+        {advisory?.should_advise && advisory.consultants_available && (
+          <div
+            className="mw-card"
+            style={{ padding: '16px 20px', borderLeft: '4px solid #d97706', background: 'rgba(217,119,6,0.06)' }}
+          >
+            <p className="mw-entity-kicker" style={{ color: '#d97706' }}>Wellness Advisory</p>
+            <h3 style={{ marginBottom: '6px' }}>Talking to someone may help</h3>
+            <p style={{ marginBottom: '12px' }}>
+              MindWell has noticed a pattern of elevated stress across your recent check-ins. A confidential consultation
+              with a company wellness consultant is available — your identity stays anonymous.
+            </p>
+            <button
+              type="button"
+              className="mw-btn-primary"
+              onClick={() => setActiveSectionId('consultant-help')}
+            >
+              Talk to a Consultant
+            </button>
+          </div>
+        )}
+
         {/* Streak badges */}
         {streakInfo && streakInfo.badges_earned.length > 0 && (
           <div className="mw-card" style={{ padding: '16px 20px' }}>
@@ -1003,6 +1106,9 @@ export const EmployeeDashboardPage = () => {
               </button>
               <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('depression-log')}>
                 Depression Log
+              </button>
+              <button type="button" className="mw-btn-ghost" onClick={() => setActiveSectionId('consultant-help')}>
+                Consultant Help
               </button>
             </div>
           </article>
@@ -2272,11 +2378,146 @@ export const EmployeeDashboardPage = () => {
     </section>
   );
 
+  const renderConsultantHelpSection = () => (
+    <section className="mw-entity-layout">
+      <div className="mw-entity-header">
+        <div className="mw-entity-header-row">
+          <div>
+            <p className="mw-entity-kicker">Confidential Support</p>
+            <h2 className="mw-entity-title">Consultant Help</h2>
+            <p className="mw-entity-description">
+              Your identity is hidden. The consultant sees only your anonymous alias.
+            </p>
+          </div>
+          {chatThread && (
+            <button
+              type="button"
+              className="mw-btn-ghost"
+              onClick={() => { void loadChatThread(); }}
+              disabled={chatLoading}
+            >
+              {chatLoading ? 'Refreshing...' : 'Refresh Chat'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {chatError && (
+        <div className="mw-scan-message-card danger">
+          <h4>Could not load chat</h4>
+          <p>{chatError}</p>
+        </div>
+      )}
+
+      {chatLoading && <div className="mw-loading-card mw-card">Loading consultation thread...</div>}
+
+      {!chatLoading && !chatError && !chatThread && (
+        <article className="mw-card mw-info-panel">
+          <p className="mw-entity-kicker">No active thread</p>
+          <h3>Start an anonymous consultation</h3>
+          <p style={{ marginBottom: '16px' }}>
+            When you start, a company wellness consultant will be assigned to your thread. They will only know
+            you by a randomly generated alias — your name and profile remain hidden.
+          </p>
+          <button
+            type="button"
+            className="mw-btn-primary"
+            onClick={() => { void handleStartConsultation(); }}
+            disabled={chatStarting}
+          >
+            {chatStarting ? 'Starting...' : 'Start Consultation'}
+          </button>
+        </article>
+      )}
+
+      {!chatLoading && !chatError && chatThread && (
+        <article className="mw-card" style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(26,43,60,0.1)' }}>
+            <div>
+              <span className="mw-badge mw-badge-muted" style={{ marginRight: '8px' }}>{chatThread.anonymous_alias}</span>
+              <span className={`mw-badge ${chatThread.status === 'open' ? 'mw-badge-warning' : chatThread.status === 'active' ? 'mw-badge-success' : 'mw-badge-muted'}`}>
+                {chatThread.status}
+              </span>
+            </div>
+            <p className="mw-helper-text">Started {formatDateTime(chatThread.created_at)}</p>
+          </div>
+
+          {/* Message list */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px', minHeight: '260px', maxHeight: '420px' }}>
+            {chatThread.messages.length === 0 && (
+              <p className="mw-helper-text" style={{ textAlign: 'center', marginTop: '40px' }}>
+                No messages yet. Send the first message to your consultant.
+              </p>
+            )}
+            {chatThread.messages.map((msg) => {
+              const isEmployee = msg.sender_role === 'employee';
+              return (
+                <div
+                  key={msg.id}
+                  style={{
+                    alignSelf: isEmployee ? 'flex-end' : 'flex-start',
+                    maxWidth: '72%',
+                    background: isEmployee ? 'var(--mw-navy, #1a2b3c)' : 'var(--mw-surface, #f4f6f8)',
+                    color: isEmployee ? '#fff' : 'inherit',
+                    borderRadius: '12px',
+                    padding: '10px 14px',
+                    fontSize: '14px',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <p style={{ margin: 0 }}>{msg.message_body}</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '11px', opacity: 0.6 }}>
+                    {isEmployee ? 'You' : 'Consultant'} · {formatDateTime(msg.created_at)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Compose */}
+          {chatThread.status !== 'resolved' && (
+            <div style={{ borderTop: '1px solid rgba(26,43,60,0.1)', padding: '12px 16px', display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                className="mw-input"
+                style={{ flex: 1 }}
+                placeholder="Type a message and press Enter…"
+                value={chatMessage}
+                onChange={(e) => setChatMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void handleEmployeeSendMessage();
+                  }
+                }}
+                disabled={chatSending}
+              />
+              <button
+                type="button"
+                className="mw-btn-primary"
+                onClick={() => { void handleEmployeeSendMessage(); }}
+                disabled={chatSending || !chatMessage.trim()}
+              >
+                {chatSending ? 'Sending...' : 'Send'}
+              </button>
+            </div>
+          )}
+          {chatThread.status === 'resolved' && (
+            <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(26,43,60,0.1)' }}>
+              <p className="mw-helper-text">This thread has been resolved. Start a new consultation if you need further support.</p>
+            </div>
+          )}
+        </article>
+      )}
+    </section>
+  );
+
   const renderSection = () => {
     if (activeSectionId === 'overview') return renderOverview();
     if (activeSectionId === 'analytics') return renderAnalyticsSection();
     if (activeSectionId === 'depression-log') return renderDepressionLogSection();
     if (activeSectionId === 'community') return renderCommunitySection();
+    if (activeSectionId === 'consultant-help') return renderConsultantHelpSection();
     if (activeSectionId === 'facial-scan') {
       if (checkInPhase === 'questionnaire') return renderQuestionnaireSection();
       if (checkInPhase === 'results') return renderResultsSection();

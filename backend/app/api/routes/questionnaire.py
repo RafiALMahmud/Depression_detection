@@ -230,3 +230,20 @@ def get_streak(
 ):
     employee = _get_employee_or_404(db, current_user)
     return session_service.get_streak_info(db, employee.id)
+
+
+@router.get("/consultant-advisory")
+def get_consultant_advisory(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.EMPLOYEE)),
+) -> dict:
+    from app.services.consultant_service import get_employee_sad_session_count, get_company_consultants_active
+    employee = _get_employee_or_404(db, current_user)
+    sad_count = get_employee_sad_session_count(db, employee.id)
+    should_advise = sad_count >= 2
+    consultants_available = len(get_company_consultants_active(db, employee.company_id)) > 0
+    return {
+        "should_advise": should_advise,
+        "sad_session_count": sad_count,
+        "consultants_available": consultants_available,
+    }

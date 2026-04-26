@@ -8,6 +8,7 @@ from app.models.base_mixins import TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.company_head import CompanyHead
+    from app.models.consultant import Consultant
     from app.models.department import Department
     from app.models.department_manager import DepartmentManager
     from app.models.employee import Employee
@@ -41,4 +42,7 @@ class Company(Base, TimestampMixin):
     invitations: Mapped[list["Invitation"]] = relationship(
         back_populates="company",
         passive_deletes=True,
+    )
+    consultants: Mapped[list["Consultant"]] = relationship(
+        back_populates="company", cascade="all, delete-orphan", passive_deletes=True
     )

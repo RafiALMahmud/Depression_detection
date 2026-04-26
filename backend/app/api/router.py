@@ -4,6 +4,8 @@ from app.api.routes import (
     auth,
     companies,
     company_heads,
+    consultation_chat,
+    consultants,
     consultations,
     dashboard,
     department_managers,
@@ -36,3 +38,5 @@ api_router.include_router(vision.router)
 api_router.include_router(questionnaire.router)
 api_router.include_router(reports.router)
 api_router.include_router(escalation_alerts.router)
+api_router.include_router(consultants.router)
+api_router.include_router(consultation_chat.router)

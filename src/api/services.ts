@@ -49,6 +49,14 @@ import type {
   PeerSupportReactionType,
   ConsultationTeamConfig,
   ConsultationRequest,
+  ConsultantProfile,
+  ConsultantListResponse,
+  ConsultantDashboardSummary,
+  ChatThread,
+  ChatThreadDetail,
+  ChatMessage,
+  StartConsultationResponse,
+  ConsultantAdvisory,
 } from '../types/domain';
 
 export interface ListQuery {
@@ -789,6 +797,95 @@ export const consultationsApi = {
   },
   listMyRequests: async (): Promise<ConsultationRequest[]> => {
     const response = await apiClient.get<ConsultationRequest[]>('/consultations/my');
+    return response.data;
+  },
+};
+
+export interface ConsultantCreatePayload {
+  full_name: string;
+  email: string;
+  company_id: number;
+  professional_title?: string;
+  specialization?: string;
+  bio?: string;
+}
+
+export interface ConsultantUpdatePayload {
+  full_name?: string;
+  professional_title?: string;
+  specialization?: string;
+  bio?: string;
+  is_active?: boolean;
+}
+
+export const consultantApi = {
+  list: async (companyId?: number): Promise<ConsultantListResponse> => {
+    const response = await apiClient.get<ConsultantListResponse>('/consultants', {
+      params: companyId ? { company_id: companyId } : {},
+    });
+    return response.data;
+  },
+  create: async (payload: ConsultantCreatePayload): Promise<ConsultantProfile> => {
+    const response = await apiClient.post<ConsultantProfile>('/consultants', payload);
+    return response.data;
+  },
+  update: async (id: number, payload: ConsultantUpdatePayload): Promise<ConsultantProfile> => {
+    const response = await apiClient.patch<ConsultantProfile>(`/consultants/${id}`, payload);
+    return response.data;
+  },
+  remove: async (id: number): Promise<void> => {
+    await apiClient.delete(`/consultants/${id}`);
+  },
+  myDashboardSummary: async (): Promise<ConsultantDashboardSummary> => {
+    const response = await apiClient.get<ConsultantDashboardSummary>('/consultants/me/dashboard-summary');
+    return response.data;
+  },
+  myProfile: async (): Promise<ConsultantProfile> => {
+    const response = await apiClient.get<ConsultantProfile>('/consultants/me/profile');
+    return response.data;
+  },
+  updateMyProfile: async (payload: ConsultantUpdatePayload): Promise<ConsultantProfile> => {
+    const response = await apiClient.patch<ConsultantProfile>('/consultants/me/profile', payload);
+    return response.data;
+  },
+};
+
+export const consultationChatApi = {
+  // Employee
+  startConsultation: async (): Promise<StartConsultationResponse> => {
+    const response = await apiClient.post<StartConsultationResponse>('/consultation-chat/start');
+    return response.data;
+  },
+  getMyThread: async (): Promise<ChatThreadDetail> => {
+    const response = await apiClient.get<ChatThreadDetail>('/consultation-chat/my-thread');
+    return response.data;
+  },
+  employeeSendMessage: async (body: string): Promise<ChatMessage> => {
+    const response = await apiClient.post<ChatMessage>('/consultation-chat/my-thread/send', { message_body: body });
+    return response.data;
+  },
+  // Consultant
+  listThreads: async (): Promise<ChatThread[]> => {
+    const response = await apiClient.get<ChatThread[]>('/consultation-chat/threads');
+    return response.data;
+  },
+  getThread: async (threadId: number): Promise<ChatThreadDetail> => {
+    const response = await apiClient.get<ChatThreadDetail>(`/consultation-chat/threads/${threadId}`);
+    return response.data;
+  },
+  consultantSendMessage: async (threadId: number, body: string): Promise<ChatMessage> => {
+    const response = await apiClient.post<ChatMessage>(`/consultation-chat/threads/${threadId}/send`, { message_body: body });
+    return response.data;
+  },
+  updateThreadStatus: async (threadId: number, status: string): Promise<ChatThread> => {
+    const response = await apiClient.patch<ChatThread>(`/consultation-chat/threads/${threadId}/status`, { status });
+    return response.data;
+  },
+};
+
+export const consultantAdvisoryApi = {
+  getAdvisory: async (): Promise<ConsultantAdvisory> => {
+    const response = await apiClient.get<ConsultantAdvisory>('/questionnaire/consultant-advisory');
     return response.data;
   },
 };

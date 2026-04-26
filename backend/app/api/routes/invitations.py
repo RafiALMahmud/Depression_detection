@@ -74,7 +74,7 @@ def _assert_invitation_scope(db: Session, invitation: Invitation, current_user: 
 
     if current_user.role == UserRole.COMPANY_HEAD:
         company_head_profile = get_company_head_profile_for_user_or_403(db, current_user)
-        if invitation.role not in {UserRole.DEPARTMENT_MANAGER, UserRole.EMPLOYEE}:
+        if invitation.role not in {UserRole.DEPARTMENT_MANAGER, UserRole.EMPLOYEE, UserRole.CONSULTANT}:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied for this invitation role")
         if invitation.company_id is None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invitation is outside your company scope")

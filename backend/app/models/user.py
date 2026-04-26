@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.audit_log import AuditLog
     from app.models.company import Company
     from app.models.company_head import CompanyHead
+    from app.models.consultant import Consultant
     from app.models.department_manager import DepartmentManager
     from app.models.employee import Employee
     from app.models.invitation import Invitation
@@ -42,6 +43,9 @@ class User(Base, TimestampMixin):
     company_head_profile: Mapped["CompanyHead | None"] = relationship(back_populates="user", uselist=False)
     department_manager_profile: Mapped["DepartmentManager | None"] = relationship(back_populates="user", uselist=False)
     employee_profile: Mapped["Employee | None"] = relationship(back_populates="user", uselist=False)
+    consultant_profile: Mapped["Consultant | None"] = relationship(
+        back_populates="user", uselist=False, foreign_keys="Consultant.user_id"
+    )
     created_companies: Mapped[list["Company"]] = relationship(back_populates="created_by_user")
     # Keep audit trails tied to DB-level ON DELETE CASCADE behavior. Without passive_deletes,
     # SQLAlchemy may try to NULL actor_user_id first, which violates NOT NULL constraints.

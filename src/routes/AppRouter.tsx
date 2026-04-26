@@ -10,6 +10,7 @@ import { SystemAdminDashboardPage } from '../pages/SystemAdminDashboardPage';
 import { CompanyHeadDashboardPage } from '../pages/CompanyHeadDashboardPage';
 import { DepartmentManagerDashboardPage } from '../pages/DepartmentManagerDashboardPage';
 import { EmployeeDashboardPage } from '../pages/EmployeeDashboardPage';
+import { ConsultantDashboardPage } from '../pages/ConsultantDashboardPage';
 import { ProtectedRoute } from './ProtectedRoute';
 
 const RouteDebugObserver = () => {
@@ -56,6 +57,10 @@ export const AppRouter = () => {
 
         <Route element={<ProtectedRoute allowedRoles={['employee']} />}>
           <Route path="/dashboard/employee" element={<EmployeeDashboardPage />} />
+        </Route>
+
+        <Route element={<ProtectedRoute allowedRoles={['consultant']} />}>
+          <Route path="/dashboard/consultant" element={<ConsultantDashboardPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

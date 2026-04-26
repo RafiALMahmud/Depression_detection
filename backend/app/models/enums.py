@@ -7,6 +7,7 @@ class UserRole(str, enum.Enum):
     COMPANY_HEAD = "company_head"
     DEPARTMENT_MANAGER = "department_manager"
     EMPLOYEE = "employee"
+    CONSULTANT = "consultant"
 
 
 class InvitationStatus(str, enum.Enum):
