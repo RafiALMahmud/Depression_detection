@@ -3,6 +3,18 @@ from datetime import datetime
 from app.schemas.common import ORMBase
 
 
+class AvailableConsultantRead(ORMBase):
+    user_id: int
+    full_name: str
+    professional_title: str | None
+    specialization: str | None
+    bio: str | None
+
+
+class StartConsultationRequest(ORMBase):
+    consultant_user_id: int
+
+
 class ThreadMessageRead(ORMBase):
     id: int
     sender_role: str

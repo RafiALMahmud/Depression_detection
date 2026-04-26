@@ -1,5 +1,5 @@
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -64,7 +64,24 @@ def get_company_consultants_active(db: Session, company_id: int) -> list[Consult
     ).all()
 
 
-def get_or_create_employee_thread(db: Session, employee_user: User) -> ConsultationThread:
+def cleanup_old_messages(db: Session) -> int:
+    cutoff = datetime.now(timezone.utc) - timedelta(weeks=2)
+    result = db.execute(
+        ConsultationMessage.__table__.delete().where(ConsultationMessage.created_at < cutoff)
+    )
+    db.commit()
+    return result.rowcount
+
+
+def get_available_consultants_for_employee(db: Session, employee_user: User) -> list[Consultant]:
+    from fastapi import HTTPException, status as http_status
+    employee = db.scalar(select(Employee).where(Employee.user_id == employee_user.id))
+    if not employee:
+        raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="Employee profile not found")
+    return get_company_consultants_active(db, employee.company_id)
+
+
+def get_or_create_employee_thread(db: Session, employee_user: User, consultant_user_id: int | None = None) -> ConsultationThread:
     employee = db.scalar(select(Employee).where(Employee.user_id == employee_user.id))
     if not employee:
         from fastapi import HTTPException, status as http_status
@@ -81,8 +98,20 @@ def get_or_create_employee_thread(db: Session, employee_user: User) -> Consultat
     if existing:
         return existing
 
-    consultants = get_company_consultants_active(db, employee.company_id)
-    consultant_user_id = consultants[0].user_id if consultants else None
+    if consultant_user_id is not None:
+        valid = db.scalar(
+            select(Consultant).where(
+                Consultant.user_id == consultant_user_id,
+                Consultant.company_id == employee.company_id,
+                Consultant.is_active == True,  # noqa: E712
+            )
+        )
+        if not valid:
+            from fastapi import HTTPException, status as http_status
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="Consultant not found or not active in your company",
+            )
 
     thread = ConsultationThread(
         company_id=employee.company_id,

@@ -49,6 +49,7 @@ import type {
   PeerSupportReactionType,
   ConsultationTeamConfig,
   ConsultationRequest,
+  AvailableConsultant,
   ConsultantProfile,
   ConsultantListResponse,
   ConsultantDashboardSummary,
@@ -852,8 +853,12 @@ export const consultantApi = {
 
 export const consultationChatApi = {
   // Employee
-  startConsultation: async (): Promise<StartConsultationResponse> => {
-    const response = await apiClient.post<StartConsultationResponse>('/consultation-chat/start');
+  getAvailableConsultants: async (): Promise<AvailableConsultant[]> => {
+    const response = await apiClient.get<AvailableConsultant[]>('/consultation-chat/available-consultants');
+    return response.data;
+  },
+  startConsultation: async (consultantUserId: number): Promise<StartConsultationResponse> => {
+    const response = await apiClient.post<StartConsultationResponse>('/consultation-chat/start', { consultant_user_id: consultantUserId });
     return response.data;
   },
   getMyThread: async (): Promise<ChatThreadDetail> => {

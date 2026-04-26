@@ -607,6 +607,14 @@ export interface StartConsultationResponse {
   status: string;
 }
 
+export interface AvailableConsultant {
+  user_id: number;
+  full_name: string;
+  professional_title: string | null;
+  specialization: string | null;
+  bio: string | null;
+}
+
 export interface ConsultantAdvisory {
   should_advise: boolean;
   sad_session_count: number;

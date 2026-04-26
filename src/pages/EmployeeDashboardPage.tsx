@@ -21,6 +21,7 @@ import { StatsCard } from '../components/dashboard/StatsCard';
 import { QuestionnaireFlow } from '../components/questionnaire/QuestionnaireFlow';
 import type { CompletionSummary } from '../components/questionnaire/QuestionnaireFlow';
 import type {
+  AvailableConsultant,
   ChatThreadDetail,
   ConsultantAdvisory,
   DepressionLogEntry,
@@ -298,10 +299,12 @@ export const EmployeeDashboardPage = () => {
 
   // Consultant advisory + anonymous chat state
   const [advisory, setAdvisory] = useState<ConsultantAdvisory | null>(null);
+  const [availableConsultants, setAvailableConsultants] = useState<AvailableConsultant[]>([]);
+  const [consultantsLoading, setConsultantsLoading] = useState(false);
   const [chatThread, setChatThread] = useState<ChatThreadDetail | null>(null);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
-  const [chatStarting, setChatStarting] = useState(false);
+  const [chatStarting, setChatStarting] = useState<number | null>(null);
   const [chatMessage, setChatMessage] = useState('');
   const [chatSending, setChatSending] = useState(false);
   const chatRunRef = useRef(0);
@@ -596,16 +599,28 @@ export const EmployeeDashboardPage = () => {
     }
   }, []);
 
-  const handleStartConsultation = useCallback(async () => {
-    setChatStarting(true);
+  const loadAvailableConsultants = useCallback(async () => {
+    setConsultantsLoading(true);
     try {
-      await consultationChatApi.startConsultation();
+      const list = await consultationChatApi.getAvailableConsultants();
+      setAvailableConsultants(list);
+    } catch {
+      setAvailableConsultants([]);
+    } finally {
+      setConsultantsLoading(false);
+    }
+  }, []);
+
+  const handleStartConsultation = useCallback(async (consultantUserId: number) => {
+    setChatStarting(consultantUserId);
+    try {
+      await consultationChatApi.startConsultation(consultantUserId);
       await loadChatThread();
       toast.success('Anonymous consultation started. Your identity is hidden from the consultant.');
     } catch (error) {
       toast.error(resolveApiErrorMessage(error, 'Could not start the consultation right now.'));
     } finally {
-      setChatStarting(false);
+      setChatStarting(null);
     }
   }, [loadChatThread]);
 
@@ -987,10 +1002,11 @@ export const EmployeeDashboardPage = () => {
   }, [loadAdvisory]);
 
   useEffect(() => {
-    if (activeSectionId === 'consultant-help' && !chatLoading && !chatThread && !chatError) {
-      void loadChatThread();
+    if (activeSectionId === 'consultant-help') {
+      if (!chatLoading && !chatThread && !chatError) void loadChatThread();
+      if (!consultantsLoading && availableConsultants.length === 0) void loadAvailableConsultants();
     }
-  }, [activeSectionId, chatLoading, chatThread, chatError, loadChatThread]);
+  }, [activeSectionId, chatLoading, chatThread, chatError, loadChatThread, consultantsLoading, availableConsultants.length, loadAvailableConsultants]);
 
   useEffect(() => {
     return () => {
@@ -2412,22 +2428,48 @@ export const EmployeeDashboardPage = () => {
       {chatLoading && <div className="mw-loading-card mw-card">Loading consultation thread...</div>}
 
       {!chatLoading && !chatError && !chatThread && (
-        <article className="mw-card mw-info-panel">
-          <p className="mw-entity-kicker">No active thread</p>
-          <h3>Start an anonymous consultation</h3>
-          <p style={{ marginBottom: '16px' }}>
-            When you start, a company wellness consultant will be assigned to your thread. They will only know
-            you by a randomly generated alias — your name and profile remain hidden.
-          </p>
-          <button
-            type="button"
-            className="mw-btn-primary"
-            onClick={() => { void handleStartConsultation(); }}
-            disabled={chatStarting}
-          >
-            {chatStarting ? 'Starting...' : 'Start Consultation'}
-          </button>
-        </article>
+        <>
+          <div className="mw-card" style={{ padding: '16px 20px', marginBottom: '4px' }}>
+            <p className="mw-entity-kicker">Choose a consultant</p>
+            <h3 style={{ marginBottom: '6px' }}>Select who you'd like to talk to</h3>
+            <p className="mw-helper-text">
+              Your name and identity are hidden. The consultant will only see your anonymous alias.
+            </p>
+          </div>
+
+          {consultantsLoading && (
+            <div className="mw-loading-card mw-card">Loading available consultants...</div>
+          )}
+
+          {!consultantsLoading && availableConsultants.length === 0 && (
+            <div className="mw-empty-state mw-card">
+              <h3>No consultants available</h3>
+              <p>Your company has no active wellness consultants right now. Check back later.</p>
+            </div>
+          )}
+
+          {!consultantsLoading && availableConsultants.map((c) => (
+            <article key={c.user_id} className="mw-card mw-info-panel" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' }}>
+              <div style={{ flex: 1 }}>
+                <p className="mw-entity-kicker">{c.specialization ?? 'Wellness Consultant'}</p>
+                <h3 style={{ marginBottom: '4px' }}>{c.full_name}</h3>
+                {c.professional_title && (
+                  <p className="mw-helper-text" style={{ marginBottom: '6px' }}>{c.professional_title}</p>
+                )}
+                {c.bio && <p style={{ fontSize: '13px', lineHeight: 1.5 }}>{c.bio}</p>}
+              </div>
+              <button
+                type="button"
+                className="mw-btn-primary"
+                style={{ flexShrink: 0 }}
+                onClick={() => { void handleStartConsultation(c.user_id); }}
+                disabled={chatStarting !== null}
+              >
+                {chatStarting === c.user_id ? 'Starting...' : 'Chat Anonymously'}
+              </button>
+            </article>
+          ))}
+        </>
       )}
 
       {!chatLoading && !chatError && chatThread && (

@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.db.init_db import initialize_database
 from app.db.session import SessionLocal
 from app.services.checkin_reminders import run_due_checkin_reminders
+from app.services.consultant_service import cleanup_old_messages
 
 # Import models so SQLAlchemy metadata includes all tables for create_all.
 from app.models import (  # noqa: F401
@@ -90,6 +91,12 @@ def on_startup() -> None:
     global _reminder_worker_thread
     with SessionLocal() as db:
         initialize_database(db)
+        try:
+            deleted = cleanup_old_messages(db)
+            if deleted:
+                logger.info("MindWell startup: purged %s consultation messages older than 2 weeks.", deleted)
+        except Exception:
+            logger.exception("MindWell startup: consultation message cleanup failed.")
     if settings.checkin_reminders_enabled:
         try:
             sent_count = _run_reminder_cycle()

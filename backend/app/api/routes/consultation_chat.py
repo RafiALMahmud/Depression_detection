@@ -6,15 +6,18 @@ from app.db.session import get_db
 from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.consultation_chat import (
+    AvailableConsultantRead,
     ConsultationThreadDetail,
     ConsultationThreadRead,
     SendMessageRequest,
+    StartConsultationRequest,
     StartConsultationResponse,
     ThreadMessageRead,
     UpdateThreadStatusRequest,
 )
 from app.services.consultant_service import (
     add_message,
+    get_available_consultants_for_employee,
     get_or_create_employee_thread,
     get_thread_for_consultant,
     get_thread_for_employee,
@@ -58,12 +61,31 @@ def _serialize_detail(thread) -> ConsultationThreadDetail:
 
 # ---------- Employee endpoints ----------
 
+@router.get("/available-consultants", response_model=list[AvailableConsultantRead])
+def list_available_consultants(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.EMPLOYEE)),
+) -> list[AvailableConsultantRead]:
+    consultants = get_available_consultants_for_employee(db, current_user)
+    return [
+        AvailableConsultantRead(
+            user_id=c.user_id,
+            full_name=c.user.full_name if c.user else "Consultant",
+            professional_title=c.professional_title,
+            specialization=c.specialization,
+            bio=c.bio,
+        )
+        for c in consultants
+    ]
+
+
 @router.post("/start", response_model=StartConsultationResponse)
 def start_consultation(
+    payload: StartConsultationRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.EMPLOYEE)),
 ) -> StartConsultationResponse:
-    thread = get_or_create_employee_thread(db, current_user)
+    thread = get_or_create_employee_thread(db, current_user, payload.consultant_user_id)
     db.commit()
     db.refresh(thread)
     return StartConsultationResponse(
