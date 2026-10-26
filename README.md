@@ -1,4 +1,22 @@
-﻿# MindWell Full-Stack Platform
+# MindWell
+
+> An employee wellness platform with invitation onboarding and role-based dashboards.
+
+![React](https://img.shields.io/badge/React-149ECA?style=flat-square&logo=react&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+
+**[GitHub repository](https://github.com/RafiALMahmud/Depression_detection)** · [First-time setup](#first-time-setup-root) · [Development](#one-command-development) · [Local production mode](#one-command-production-like-local) · [Useful commands](#useful-commands) · [Troubleshooting](#if-dashboard-route-looks-blank-during-dev)
+
+| Project | At a glance |
+|---|---|
+| Product name | MindWell |
+| Repository name | `Depression_detection` |
+| Frontend | React, TypeScript and Vite |
+| Backend | FastAPI, PostgreSQL and JWT authentication |
+| Local workflow | Shared Python environment and root-level startup commands |
+
+**Deployment link:** [Configured MindWell site](https://depression-detection-psi.vercel.app/). This address returned HTTP 404 during the documentation review on 27 October 2026. Use the local setup below while deployment availability is being confirmed.
+
+---
 
 MindWell is an AI-powered employee wellness platform with:
 - React + Vite frontend
